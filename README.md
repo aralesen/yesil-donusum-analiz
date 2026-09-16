@@ -37,19 +37,21 @@ Depoya `ornek_anket.xlsx` adında bir anket dosyası eklenirse kenar çubuğunda
 Algoritma hiçbir sayıyı sabit varsaymaz. Küme, kriter ve strateji sayısı, uzman puanları, puan ölçeği ve bulanıklık genişliği bir **model** tanımından okunur. Model üç yoldan gelir, öncelik sırasıyla:
 
 1. Kenar çubuğundan yüklenen özel model dosyası,
-2. Anket dosyasının içindeki `MODEL` sayfası,
+2. Anket dosyasının içindeki `MAIN_DATA` (model) sayfası,
 3. Hiçbiri yoksa `fanp_motor.py` içindeki varsayılan model (5 küme, 25 kriter, 4 strateji, 1 ile 9 ölçeği).
 
-Yeni bir model kurmanın en kolay yolu kenar çubuğundaki **Model şablonunu indir** düğmesidir. `MODEL` sayfasında her satır bir kriterdir:
+Yeni bir model kurmanın en kolay yolu kenar çubuğundaki **Model şablonunu indir** düğmesidir. Şablonun `MAIN_DATA` sayfasında yan yana üç blok vardır:
 
-| Küme kodu | Küme adı | Küme başlığı | Kriter kodu | Kriter başlığı | Kriter adı | S1: Strateji adı | S2: ... |
-|---|---|---|---|---|---|---|---|
-| E | Enerji | Main_E | E.1 | Q1 | Enerji verimliliği | 7 | 3 |
+| Kriterler ve ihtiyaç puanları | Ana başlıklar ve ağırlık puanları | Uzman değerlendirmesi |
+|---|---|---|
+| Kriter Kodu, Kriter Adı, Anket Başlığı, Küme Kodu, Puan | Küme Kodu, Küme Adı, Anket Başlığı, Ağırlık Puanı | Kriter Kodu, A1: Ad, A2: Ad, ... |
 
-* **Küme başlığı** ve **kriter başlığı**, anket dosyasındaki sütun başlıklarıdır. Anket bu başlıklarla (ya da doğrudan kodlarla) eşleştirilir.
-* Strateji sütunları, kriter adı sütunundan sonra ilk boş başlığa kadar okunur. Başlık `Kod: Ad` biçimindedir.
-* Aynı sayfada `Ölçek alt`, `Ölçek üst` ve `Bulanıklık` etiketlerinin sağındaki hücreler puan ölçeğini ve üçgen bulanık sayının genişliğini belirler (varsayılan 1, 9, 1).
-* İsteğe bağlı `BAĞIMLILIK` sayfası: satır ve sütunları küme kodları olan, negatif olmayan bir etki matrisi. Verilirse kriterler arası iç bağımlılık süpermatrise eklenir.
+* **Anket Başlığı**, anket dosyasındaki sütun başlığıdır; anket bu başlıklarla (ya da doğrudan kodlarla) eşleştirilir.
+* **Puan** ve **Ağırlık Puanı** sütunları doldurulursa dosya tek başına bir firma değerlendirmesi olarak yüklenebilir; boş bırakılırsa sadece model tanımı olarak kullanılır.
+* **Uzman değerlendirmesi** bloğundaki her hücre, stratejinin o kriterdeki ihtiyacı karşılama puanıdır. Girdi tablosudur; strateji sonuçları uygulamada hesaplanır.
+* Kriter bloğunda Küme Kodu yoksa kriter kodunun noktadan önceki kısmı kullanılır (C1.4 için C1). Bloklar arasında boş sütun olması gerekmez; kod etiketli (`C1.1 (Yatırım Mal.)`) ve strateji başlığı parantezli (`A1 (Teknoloji)`) yazılabilir.
+* Ana başlıklar bloğunun altındaki **AYARLAR** kısmında `Ölçek alt`, `Ölçek üst` ve `Bulanıklık` değerleri puan ölçeğini ve üçgen bulanık sayının genişliğini belirler (varsayılan 1, 9, 1).
+* İsteğe bağlı `BAĞIMLILIK` sayfası: satır ve sütunları küme kodları olan, negatif olmayan bir etki matrisi. Verilirse ana başlıklar arası iç bağımlılık süpermatrise eklenir.
 
 Tutarsız bir model (tekrarlanan kod, kümesiz kriter, kriteri olmayan küme, ölçek dışı uzman puanı, yanlış boyutlu bağımlılık matrisi) hesaba girmeden açık bir mesajla reddedilir. Aksiyon planı ya da motivasyon metni tanımlanmamış stratejiler için genel bir metin gösterilir.
 

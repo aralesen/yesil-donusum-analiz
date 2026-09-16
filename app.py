@@ -89,8 +89,9 @@ with st.sidebar:
 
     st.header("Model")
     mup = st.file_uploader("Özel model (isteğe bağlı)", type=["xlsx"], key="model_file",
-                           help="Küme, kriter, strateji ve uzman puanlarını değiştirmek için şablonu indirip düzenleyin. "
-                                "Anket dosyasının içine MODEL sayfası eklemek de aynı işi görür.")
+                           help="Şablonda üç blok var: kriterler ve ihtiyaç puanları, ana başlıklar ve ağırlık puanları, "
+                                "uzman değerlendirmesi. Kriter, küme ya da strateji eklemek veya uzman puanlarını "
+                                "değiştirmek için şablonu indirip düzenleyin.")
     model_bytes = mup.getvalue() if mup is not None else None
     try:
         base_model = model_yukle(model_bytes)
@@ -129,7 +130,8 @@ def strateji_tanimlari(model):
 
 if "content" not in st.session_state:
     strateji_tanimlari(base_model)
-    st.info("Başlamak için soldan anket Excel dosyasını yükleyin" + (" ya da tez verisiyle açın." if ORNEK.exists() else "."))
+    st.info("Başlamak için soldan anket Excel dosyasını yükleyin" + (" ya da tez verisiyle açın." if ORNEK.exists() else ".") +
+            " Tek bir firmayı değerlendirmek için model şablonundaki puan sütunlarını doldurup anket dosyası olarak yüklemeniz de yeterli.")
     with st.expander("Excel'de hangi başlıklar olmalı?", expanded=True):
         st.markdown(f"Model: **{base_model.source}**, {len(base_model.cl_codes)} küme, {len(base_model.codes)} kriter, "
                     f"{len(base_model.alt_codes)} strateji, puanlar {tr_num(base_model.scale_min, 0)} ile "

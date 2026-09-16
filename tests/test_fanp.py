@@ -306,7 +306,7 @@ def test_model_dosyasi_anket_icinde():
             df.to_excel(xw, sheet_name=sh, index=False, header=False)
         m._write_model_sheet(xw, model)
     got_model, survey, *_ = m.read_workbook(buf.getvalue())
-    assert got_model.source.startswith("'MODEL'") and got_model.codes == model.codes
+    assert got_model.source.startswith("'MAIN_DATA'") and got_model.codes == model.codes
     assert len(survey) == 4
 
 
@@ -362,3 +362,57 @@ def test_tutarlilik_orani(seed):
     crs = m.consistency_ratios(model, R, C)
     assert crs.shape == (8, len(model.cl_codes) + 1)
     assert np.all(np.abs(crs.values) < 1e-9)
+
+
+@pytest.mark.parametrize('seed', range(10))
+def test_sablon_puanlariyla_tek_firma(seed):
+    """Şablonun puan sütunları doldurulup yüklenirse tek firma değerlendirmesi yapılır."""
+    rng = np.random.default_rng(900 + seed)
+    model = random_model(rng)
+    R, C = random_scores(rng, model, 1)
+    content = m.model_template_excel(model, R[0], C[0])
+    got_model, survey, demo, rep, info = m.read_workbook(content)
+    assert got_model.codes == model.codes and list(survey.index) == ['1']
+    res = m.analyze(got_model, survey, demo, rep, simulations=0)
+    expect = m.run_fanp(model, R, C)['net'][0]
+    shares = res['firms'][[f'{a} payı (%)' for a in model.alt_codes]].values[0] / 100
+    assert np.allclose(shares, expect / expect.sum())
+
+
+def test_elle_kurulmus_main_data_duzeni():
+    """Bloklar arasında boşluk olmayan, kriter bloğunda küme kodu sütunu bulunmayan, kodları etiketli
+    ('C1.1 (Yatırım)') ve strateji başlıkları parantezli ('A1 (Teknoloji)') elle kurulmuş düzen."""
+    rng = np.random.default_rng(42)
+    K, per, A = 3, [2, 3, 2], 4
+    codes = [f"C{k + 1}.{j + 1}" for k in range(K) for j in range(per[k])]
+    R = rng.integers(1, 10, len(codes))
+    C = rng.integers(1, 10, K)
+    mat = rng.integers(1, 10, (len(codes), A))
+    header = ['Kriter Kodu', 'Kriter Adı', 'Puan(1-9)', None, 'Cluster_Code', 'Cluster_Weight_Score', 'Kriter Kodu'] + \
+             [f"A{a + 1} (Strateji {a + 1})" for a in range(A)]
+    rows = [header]
+    for i, code in enumerate(codes):
+        row = [code, f"Ad {i}", int(R[i]), None, None, None, f"{code} (etiket {i})"] + [int(x) for x in mat[i]]
+        if i < K:
+            row[4], row[5] = f"C{i + 1}", int(C[i])
+        rows.append(row)
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine='openpyxl') as xw:
+        pd.DataFrame(rows).to_excel(xw, sheet_name='MAIN_DATA', index=False, header=False)
+    model, survey, *_ = m.read_workbook(buf.getvalue())
+    assert model.codes == codes and model.cl_codes == ['C1', 'C2', 'C3']
+    assert [c[3] for c in model.criteria] == [c.split('.')[0] for c in codes]
+    assert model.names == {f"A{a + 1}": f"Strateji {a + 1}" for a in range(A)}
+    assert np.allclose(model.alt_matrix, mat)
+    assert np.allclose(survey.loc['1', codes].values.astype(float), R)
+    assert np.allclose(survey.loc['1', ['C1', 'C2', 'C3']].values.astype(float), C)
+
+
+def test_uzman_blogu_eksikse_acik_hata():
+    rows = [['Kriter Kodu', 'Kriter Adı', 'Puan', None, 'Küme Kodu', 'Ağırlık Puanı'],
+            ['C1.1', 'a', 3, None, 'C1', 5], ['C1.2', 'b', 4, None, None, None]]
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine='openpyxl') as xw:
+        pd.DataFrame(rows).to_excel(xw, sheet_name='MAIN_DATA', index=False, header=False)
+    with pytest.raises(m.ModelError):
+        m.read_model(buf.getvalue())
