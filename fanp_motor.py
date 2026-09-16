@@ -103,12 +103,12 @@ REFERENCE_LINKS = {
 # =============================================================================
 EXTENDED_REFERENCES = {
     '[REF-11]': {
-        'citation': 'T.C. Çevre, Şehircilik ve İklim Değişikliği Bakanlığı. (2023). Ulusal Yeşil Mutabakat Eylem Planı ve SKDM Uyum Raporu.',
-        'link': 'https://iklim.gov.tr/'
+        'citation': 'T.C. Ticaret Bakanlığı. (2021). Yeşil Mutabakat Eylem Planı.',
+        'link': 'https://ticaret.gov.tr/'
     },
     '[REF-12]': {
-        'citation': 'KOSGEB & Dünya Bankası. (2024). Türkiye Yeşil Sanayi Projesi (Finansman ve Hibe Rehberi).',
-        'link': 'https://www.kosgeb.gov.tr/'
+        'citation': 'KOSGEB. Türkiye Yeşil Sanayi Projesi: Yeşil Sanayi Destek Programı.',
+        'link': 'https://www.kosgeb.gov.tr/site/tr/genel/detay/9029/turkiye-yesil-sanayi-projesi'
     },
     '[REF-13]': {
         'citation': 'ISO. (2018). ISO 50001:2018 Energy management systems — Requirements with guidance for use.',
@@ -121,6 +121,10 @@ EXTENDED_REFERENCES = {
     '[REF-15]': {
         'citation': 'Bocken, N. M., et al. (2014). A literature and practice review to develop sustainable business model archetypes. Journal of Cleaner Production.',
         'link': 'https://doi.org/10.1016/j.jclepro.2013.11.039'
+    },
+    '[REF-16]': {
+        'citation': 'TÜBİTAK. 1831 Yeşil İnovasyon Teknoloji Mentörlük Çağrısı (Türkiye Yeşil Sanayi Projesi).',
+        'link': 'https://tubitak.gov.tr/tr/destekler/destek/sanayi/ulusal-destek-programlari/cagri-1831-yesil-inovasyon-teknoloji-mentorluk-cagrisi'
     }
 }
 
@@ -463,6 +467,9 @@ def robustness(model, ratings, cluster_scores, n=SIMULASYON_SAYISI, seed=RASTGEL
 
     def sample(r):
         l, m, u = to_tfn(model, np.asarray(r, float))
+        # Orta değer kayan nokta yuvarlaması yüzünden sınırı çok az aşabilir (örneğin exp(log(9)) = 9.000000000000002).
+        # Üçgen dağılım l <= m <= u ister; orta değer aralığın içine sabitlenir.
+        m = np.minimum(np.maximum(m, l), u)
         out = np.repeat(m[None, :], n, axis=0)
         var = u > l
         if var.any():
@@ -519,7 +526,7 @@ def commentary(model, win):
 # =============================================================================
 CONSULTANT_INTENTS = {
     'skdm_mevzuat': {
-        'terms': ['skdm', 'cbam', 'karbon vergisi', 'mevzuat', 'yasa', 'ceza', 'ab', 'avrupa', 'ihracat', 'uyum', 'emisyon'],
+        'terms': ['skdm', 'cbam', 'karbon', 'mevzuat', 'yasa', 'ceza', 'ab', 'avrupa', 'ihracat', 'uyum', 'emisyon'],
         'strategy': 'A4',
         'analysis': "AB Sınırda Karbon Düzenleme Mekanizması (SKDM) ve ulusal emisyon ticareti regülasyonları ihracatçı KOBİ'ler için doğrudan maliyet ve kota riski barındırır.",
         'prescription': [
@@ -534,19 +541,19 @@ CONSULTANT_INTENTS = {
         'refs': ['[REF-07]', '[REF-10]', '[REF-11]', '[REF-14]']
     },
     'finans_tesvik': {
-        'terms': ['finans', 'para', 'maliyet', 'teşvik', 'hibe', 'kredi', 'bütçe', 'destek', 'kosgeb', 'tübitak', 'fon'],
+        'terms': ['finans', 'maliyet', 'teşvik', 'hibe', 'kredi', 'bütçe', 'destek', 'kosgeb', 'tübitak', 'fon', 'yatırım'],
         'strategy': 'A1',
         'analysis': "Yeşil dönüşüm yatırımlarında yüksek ilk yatırım maliyeti (CapEx) engeli, ulusal ve uluslararası faizsiz yeşil kredi hatları ile hafifletilebilir.",
         'prescription': [
-            "KOSGEB Yeşil Sanayi Projesi kapsamındaki faizsiz geri ödemeli proje desteklerine (Güneş Enerjisi, Enerji Verimliliği) başvuru dosyanızı hazırlayın.",
-            "TÜBİTAK 1831 Yeşil İnovasyon Teknoloji Mentörlük Desteği ile Ar-Ge teşviklerinden yararlanın.",
+            "KOSGEB Yeşil Sanayi Destek Programı (Türkiye Yeşil Sanayi Projesi) kapsamındaki faizsiz, geri ödemeli desteklere; Güneş Enerjisi ya da Sanayide Temiz ve Döngüsel Ekonomi çağrıları için başvuru dosyanızı hazırlayın.",
+            "KOBİ iseniz TÜBİTAK 1831 Yeşil İnovasyon Teknoloji Mentörlük Çağrısı ile TÜBİTAK'ın akredite ettiği çözüm ortaklarından alacağınız yeşil dönüşüm danışmanlığı ve yol haritası hizmetinin %90'ını hibe olarak karşılayın.",
             "Yeşil Kredi faiz indirimlerinden faydalanmak adına bağımsız bir kuruluşa Enerji Etüt Raporu hazırlatın."
         ],
         'leads': [
             "KOSGEB / TÜBİTAK Proje Hazırlama Danışmanları",
             "Sürdürülebilirlik Odaklı Kalkınma Bankası Temsilcileri"
         ],
-        'refs': ['[REF-06]', '[REF-12]']
+        'refs': ['[REF-06]', '[REF-12]', '[REF-16]']
     },
     'dongusel_atik': {
         'terms': ['atık', 'geri dönüşüm', 'hurda', 'döngüsel', 'simbiyoz', 'pe', 'pp', 'plastik', 'hammadde', 'fire', 'kaynak'],
@@ -570,7 +577,7 @@ CONSULTANT_INTENTS = {
         'prescription': [
             "Tesis genelinde ISO 50001 Enerji Yönetim Sistemi standardını devreye alın ve enerji izleme ekibi kurun.",
             "Basınçlı hava sistemleri ve verimsiz elektrik motorlarında (IE1/IE2) IE4/IE5 verimli motor dönüşümü gerçekleştirin.",
-            "Fabrika çatısına öz tüketim amaçlı Lisanssız Çatı GES kurulumu için dağıtım şirketinden çağrı mektubu başvurusu yapın."
+            "Öz tüketime yönelik çatı GES için bağlı olduğunuz elektrik dağıtım şirketine bağlantı başvurusu yapın; güncel başvuru şartlarını dağıtım şirketinden teyit edin."
         ],
         'leads': [
             "EPC (Anahtar Teslim GES) Kurulum Şirketleri",
@@ -596,18 +603,35 @@ CONSULTANT_INTENTS = {
 }
 
 
+def tr_lower(text):
+    """Türkçe küçük harf: 'İ' -> 'i', 'I' -> 'ı' (str.lower 'İ' harfini noktalı iki karaktere çevirir)."""
+    return str(text).replace('İ', 'i').replace('I', 'ı').lower()
+
+
+def term_in_text(term, text):
+    """Terim bir kelimenin başında geçmeli (Türkçe ekler serbest: 'atık' -> 'atıklarımız').
+    3 harf ve daha kısa terimler (ab, pe, pp, ges, res, fon, iot) yalnızca tam kelime olarak eşleşir;
+    böylece 'rekabet' içinde 'ab', 'personel' içinde 'pe' bulunmaz."""
+    # Karşılaştırmada ı ile i eşit sayılır: İngilizce kısaltmalar (IoT, ISO) Türkçe küçük harfte 'ı' ile yazılır.
+    term = tr_lower(term).replace('ı', 'i')
+    text = tr_lower(text).replace('ı', 'i')
+    if len(term) <= 3:
+        return re.search(r'(?<![\w])' + re.escape(term) + r'(?![\w])', text) is not None
+    return re.search(r'(?<![\w])' + re.escape(term), text) is not None
+
+
 def advanced_green_consultant_reply(prompt: str, firm_data: dict = None, model = None, rag_engine = None) -> str:
-    text = prompt.lower().strip()
-    
+    text = tr_lower(prompt).strip()
+
     matched_intents = []
     for key, data in CONSULTANT_INTENTS.items():
-        score = sum(1 for term in data['terms'] if term in text)
+        score = sum(1 for term in data['terms'] if term_in_text(term, text))
         if score > 0:
             matched_intents.append((score, data))
             
     matched_intents.sort(key=lambda x: x[0], reverse=True)
     
-    firm_id = firm_data.get('ID', 'Genel') if firm_data else 'Genel'
+    firm_id = (firm_data.get('ID') or firm_data.get('Firma') or 'Seçili firma') if firm_data else 'Genel'
     winner_strat = firm_data.get('Kazanan', 'A1') if firm_data else None
     scale = firm_data.get('Ölçek', 'Orta') if firm_data else 'Orta'
     motivation = firm_data.get('Motivasyon', 'Belirtilmemiş') if firm_data else 'Belirtilmemiş'
@@ -639,10 +663,17 @@ def advanced_green_consultant_reply(prompt: str, firm_data: dict = None, model =
         for i, step in enumerate(top_intent['prescription'], 1):
             out.append(f"{i}. {step}")
             
-        out.append("\n#### 🤝 Doğrulanmış Çözüm Ortakları & Yönlendirmeler")
-        out.append("Bu aşamada dış danışmanlık veya tedarikçi iş birliği gerekebilir:")
+        out.append("\n#### 🤝 Destek Alınabilecek Hizmet Türleri")
+        out.append("Bu aşamada şu tür kuruluşlardan dış destek gerekebilir:")
         for lead in top_intent['leads']:
-            out.append(f"- 🔗 **{lead}** (Ön görüşme & fizibilite desteği)")
+            out.append(f"- 🔗 **{lead}**")
+        refs = [r for r in top_intent.get('refs', []) if r in APA_REFERENCES or r in EXTENDED_REFERENCES]
+        if refs:
+            out.append("\n#### 📚 Kaynaklar")
+            for r in refs:
+                citation = APA_REFERENCES.get(r) or EXTENDED_REFERENCES[r]['citation']
+                link = REFERENCE_LINKS.get(r) or EXTENDED_REFERENCES.get(r, {}).get('link')
+                out.append(f"- {r} {citation}" + (f" [Bağlantı]({link})" if link else ""))
             
     else:
         out.append("#### 🌱 Yeşil Dönüşüm Uzman Asistanı")
@@ -665,68 +696,6 @@ def advanced_green_consultant_reply(prompt: str, firm_data: dict = None, model =
                 snippet = snippet[:500] + "..."
             out.append(f"> 📄 **{source_name}**: *\"{snippet}\"*")
 
-    return "\n".join(out)
-    
-    matched_intents = []
-    for key, data in CONSULTANT_INTENTS.items():
-        score = sum(1 for term in data['terms'] if term in text)
-        if score > 0:
-            matched_intents.append((score, data))
-            
-    matched_intents.sort(key=lambda x: x[0], reverse=True)
-    
-    firm_id = firm_data.get('ID', 'Genel') if firm_data else 'Genel'
-    winner_strat = firm_data.get('Kazanan', 'A1') if firm_data else None
-    scale = firm_data.get('Ölçek', 'Orta') if firm_data else 'Orta'
-    motivation = firm_data.get('Motivasyon', 'Belirtilmemiş') if firm_data else 'Belirtilmemiş'
-    
-    out = []
-    
-    if firm_data:
-        strat_label = model.labels[winner_strat] if model else winner_strat
-        out.append(f"### 🏢 Kurumsal Değerlendirme [Firma #{firm_id} | {scale} Ölçek]")
-        out.append(f"**Modelin Belirlediği Öncelik:** `{strat_label}` | **Temel Motivasyon:** *\"{motivation}\"*")
-        out.append("---")
-    
-    if matched_intents:
-        top_intent = matched_intents[0][1]
-        
-        out.append(f"#### 🧠 Stratejik Analiz & Teşhis\n{top_intent['analysis']}")
-        
-        if winner_strat:
-            if winner_strat == top_intent['strategy']:
-                out.append(f"\n> 🎯 **Sistem Doğrulaması:** Bu konu, FANP modelinin firmanız için belirlediği **{winner_strat}** stratejisi ile **birebir örtüşmektedir**. Kaynak önceliğinizi doğrudan bu aksiyonlara yöneltmelisiniz.")
-            else:
-                out.append(f"\n> 💡 **Stratejik Sentez:** Sorguladığınız başlık firmanızın birincil stratejisinden ({winner_strat}) farklı görünse de, bu alanı **{winner_strat}** vizyonunuza destekçi bir alt proje olarak kurgulamalısınız.")
-        
-        out.append("\n#### 📋 Adım Adım Aksiyon Reçetesi")
-        for i, step in enumerate(top_intent['prescription'], 1):
-            out.append(f"{i}. {step}")
-            
-        out.append("\n#### 🤝 Doğrulanmış Çözüm Ortakları & Yönlendirmeler")
-        out.append("Bu aşamada dış danışmanlık veya tedarikçi iş birliği gerekebilir:")
-        for lead in top_intent['leads']:
-            out.append(f"- 🔗 **{lead}** (Ön görüşme & fizibilite desteği)")
-            
-        out.append("\n#### 📚 İlgili Metodoloji ve Kaynaklar")
-        all_refs = {**APA_REFERENCES, **EXTENDED_REFERENCES}
-        ref_links = {**REFERENCE_LINKS, **{k: v['link'] for k, v in EXTENDED_REFERENCES.items()}}
-        
-        for r_code in top_intent['refs']:
-            ref_info = all_refs.get(r_code)
-            ref_text = ref_info['citation'] if isinstance(ref_info, dict) else ref_info
-            link = ref_links.get(r_code, '#')
-            out.append(f"- **{r_code}**: {ref_text} [[İncele]({link})]")
-            
-    else:
-        out.append("#### 🌱 Yeşil Dönüşüm Uzman Asistanı")
-        out.append("Sorunuzu spesifik yeşil dönüşüm parametrelerine göre değerlendirebilmem için lütfen aşağıdaki başlıklardan birini seçin ya da bu doğrultuda detay verin:\n")
-        out.append("1. **SKDM ve Karbon Vergisi Yönetimi:** İhracat riskleri, emisyon takibi ve ISO 14064 belgelendirmesi.")
-        out.append("2. **Devlet Destekleri & Yeşil Finansman:** KOSGEB, TÜBİTAK ve Dünya Bankası kaynaklı faizsiz proje hibeleri.")
-        out.append("3. **Döngüsel Ekonomi & Atık Değerlendirme:** PE/PP plastik ayrıştırma, endüstriyel simbiyoz ve fire azaltımı.")
-        out.append("4. **Enerji Verimliliği & Öz Tüketim GES:** ISO 50001, motor dönüşümleri ve çatı güneş santralleri.")
-        out.append("5. **Endüstriyel IoT & Dijital İkizler:** Gerçek zamanlı enerji analitiği ve karbon izleme sistemleri.")
-        
     return "\n".join(out)
 
 
@@ -1040,7 +1009,9 @@ def analyze(model, survey, demo, rep=None, sentez=None, simulations=SIMULASYON_S
         wrows.append({'ID': fid, **{k: float(res['global'][i, j]) for j, k in enumerate(model.codes)}})
         crows.append({'ID': fid, **{k: float(res['cluster'][i, j]) for j, k in enumerate(model.cl_codes)}})
 
-    gR, gC = np.exp(np.log(R).mean(0)), np.exp(np.log(C).mean(0))
+    # Geometrik ortalama; yuvarlama taşmalarına karşı ölçek sınırlarına sabitlenir
+    gR = np.clip(np.exp(np.log(R).mean(0)), model.scale_min, model.scale_max)
+    gC = np.clip(np.exp(np.log(C).mean(0)), model.scale_min, model.scale_max)
     gres = run_fanp(model, gR, gC, sentez)
     gprob = robustness(model, gR, gC, simulations, RASTGELE_TOHUM, sentez)
     gnet = gres['net'][0]

@@ -1,0 +1,5 @@
+# Danışmanın PDF arama (RAG) özelliği için ek paketler. Ağırdır (PyTorch dahil).
+# Kurulum: pip install -r requirements.txt -r requirements-rag.txt
+faiss-cpu
+sentence-transformers
+PyPDF2

@@ -16,7 +16,9 @@ Türk geri dönüşüm ve imalat firmaları için yeşil dönüşüm stratejisi 
 | Dosya | İşi |
 |---|---|
 | `app.py` | Streamlit arayüzü; modele göre kendini kurar |
-| `fanp_motor.py` | Model tanımı, FANP hesabı, Excel okuma ve sonuç dosyası |
+| `fanp_motor.py` | Model tanımı, FANP hesabı, Excel okuma, sonuç dosyası ve yeşil danışman |
+| `rag_motor.py` | Danışman için PDF doküman araması (isteğe bağlı) |
+| `requirements-rag.txt` | PDF araması için ek paketler |
 | `tests/` | Algoritma ve arayüz testleri |
 | `requirements.txt` | Paketler |
 | `.streamlit/config.toml` | Tema ve yükleme sınırı |
@@ -88,8 +90,18 @@ Uygulamada karşılaştırma için, öncelikleri süpermatristen önce durulaşt
 * Her kriterde başka bir stratejiden en az onun kadar puan alan strateji geride kalmaz; küme puanı artınca küme ağırlığı azalmaz.
 * Aynı anket farklı Excel düzenleriyle (karışık sütun sırası, birden çok ID bloğu, üstte boş satırlar, fazladan sütunlar, virgüllü ondalıklar) yazılır ve hep aynı veri okunur.
 * İki şablon doldurulup yüklendiğinde girilen puanlar birebir okunur; şablonlarda strateji sütunu bulunmadığı ayrıca sınanır.
+* Puanlar ölçeğin alt ve üst sınırındayken sağlamlık analizi ve sektör geneli hesabı hatasız çalışır.
+* Danışman doğru konuya eşlenir, kelime içinde yanlış eşleşme yapmaz, Türkçe büyük harfleri doğru işler ve yalnızca tanımlı kaynaklara başvurur.
 * Arayüz, varsayılan modelle ve 3 küme, 7 strateji, 1 ile 5 ölçekli bir modelle uçtan uca çalıştırılır.
+
+## Yeşil danışman
+
+"Yeşil Danışman" sekmesi, seçilen firmanın FANP sonucunu (kazanan strateji, ölçek, motivasyon) soruyla birleştirir. Soru beş konudan birine eşlenir: SKDM ve mevzuat, finansman ve teşvikler, döngüsel ekonomi ve atık, enerji verimliliği, dijitalleşme. Cevapta konunun kısa analizi, adım adım aksiyonlar, destek alınabilecek hizmet türleri ve kaynaklar yer alır.
+
+Eşleştirme kelime başından yapılır ve Türkçe ekleri kabul eder ("atık" terimi "atıklarımızı" ile eşleşir). Üç harf ve daha kısa terimler (AB, PE, PP, GES, IoT) yalnızca tam kelime olarak eşleşir; böylece "rekabet" içinde "ab" ya da "personel" içinde "pe" bulunmaz. Terimler ve metinler `CONSULTANT_INTENTS` içindedir.
+
+**PDF araması (isteğe bağlı).** `bilgi_havuzu/` klasörüne PDF'ler konur ve ek paketler kurulursa (`pip install -r requirements.txt -r requirements-rag.txt`), danışman cevabın sonuna bu belgelerden en ilgili iki bölümü ekler. Paketler kurulu değilse danışman PDF araması olmadan çalışır. Ek paketler PyTorch içerdiği için bulut ortamında kurulum süresi ve bellek kullanımı belirgin şekilde artar.
 
 ## Metinleri değiştirmek
 
-Aksiyon planları `RECOMMENDATIONS_MAP`, motivasyon yönlendirmeleri `MOTIVATION_KEYS` ve `MOTIVATION_ADVICE`, sektör yorumları `COMMENTARY_TEMPLATES`, strateji açıklamaları `STRATEGY_DESCRIPTIONS`, kaynaklar `APA_REFERENCES` ve `REFERENCE_LINKS` içindedir. Hepsi strateji koduna göre anahtarlanır; yeni bir modelde karşılığı olmayan kodlar için genel metin kullanılır.
+Aksiyon planları `RECOMMENDATIONS_MAP`, danışman konuları `CONSULTANT_INTENTS`, ek kaynaklar `EXTENDED_REFERENCES`, motivasyon yönlendirmeleri `MOTIVATION_KEYS` ve `MOTIVATION_ADVICE`, sektör yorumları `COMMENTARY_TEMPLATES`, strateji açıklamaları `STRATEGY_DESCRIPTIONS`, kaynaklar `APA_REFERENCES` ve `REFERENCE_LINKS` içindedir. Hepsi strateji koduna göre anahtarlanır; yeni bir modelde karşılığı olmayan kodlar için genel metin kullanılır.

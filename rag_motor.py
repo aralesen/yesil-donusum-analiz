@@ -86,10 +86,11 @@ class GreenRAG:
         1. FAISS ile en yakın 'fetch_k' (10) adayı bul.
         2. Cross-Encoder ile bu adayları okuyup mantık puanı ver, en iyi 'top_k' (2) adayı döndür.
         """
-        if not self.index:
+        if self.index is None or self.index.ntotal == 0 or not str(query).strip():
             return []
-            
+
         # --- AŞAMA 1: FAISS Kaba Arama ---
+        fetch_k = min(fetch_k, self.index.ntotal)
         query_vector = self.model.encode([query], convert_to_numpy=True)
         distances, indices = self.index.search(query_vector, fetch_k)
         

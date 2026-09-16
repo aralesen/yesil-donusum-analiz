@@ -458,3 +458,41 @@ def test_yanlis_tur_dosyasi_acik_hata():
     model = m.default_model()
     with pytest.raises(ValueError):
         m.read_workbook(m.multi_firm_template_excel(model), model, kind='tek')
+
+
+# ----------------------------------------------------------------------------- sınır değerleri
+@pytest.mark.parametrize('seed', range(20))
+@pytest.mark.parametrize('sentez', ['bulanik', 'durulastirilmis'])
+def test_sinir_puanlarinda_saglamlik_analizi_calisir(seed, sentez):
+    """Puanlar ölçeğin alt ve üst sınırındayken (tek firma, hepsi aynı ya da karışık) sağlamlık analizi ve
+    geometrik ortalama yuvarlama taşması yüzünden hata vermemeli."""
+    rng = np.random.default_rng(1300 + seed)
+    model = random_model(rng)
+    lo, hi = model.scale_min, model.scale_max
+    n = int(rng.integers(1, 5))
+    kind = seed % 3
+    if kind == 0:
+        R = np.full((n, len(model.codes)), hi)
+        C = np.full((n, len(model.cl_codes)), hi)
+    elif kind == 1:
+        R = np.full((n, len(model.codes)), lo)
+        C = np.full((n, len(model.cl_codes)), lo)
+    else:
+        R = rng.choice([lo, hi], (n, len(model.codes)))
+        C = rng.choice([lo, hi], (n, len(model.cl_codes)))
+    survey = pd.DataFrame(np.hstack([R, C]), columns=model.needed, index=[str(i + 1) for i in range(n)])
+    res = m.analyze(model, survey, pd.DataFrame(columns=['Scale', 'Sector', 'Motivation']), sentez=sentez, simulations=100)
+    assert len(res['firms']) == n
+    probs = res['firms'][[f'{a} birincilik (%)' for a in model.alt_codes]].values
+    assert np.allclose(probs.sum(axis=1), 100)
+    assert np.isclose(res['group']['Birincilik olasılığı (%)'].sum(), 100)
+
+
+@pytest.mark.parametrize('seed', range(10))
+def test_saglamlik_analizi_rastgele_puanlarla(seed):
+    rng = np.random.default_rng(1400 + seed)
+    model = random_model(rng)
+    R, C = random_scores(rng, model, 6)
+    survey = pd.DataFrame(np.hstack([R, C]), columns=model.needed, index=[str(i + 1) for i in range(6)])
+    res = m.analyze(model, survey, pd.DataFrame(columns=['Scale', 'Sector', 'Motivation']), simulations=200)
+    assert res['firms']['Birincilik olasılığı (%)'].between(0, 100).all()

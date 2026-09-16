@@ -18,7 +18,7 @@ import fanp_motor as m
 
 try:
     from rag_motor import GreenRAG
-except ImportError:
+except Exception:            # paketler kurulu değilse ya da yüklenemiyorsa danışman RAG olmadan çalışır
     GreenRAG = None
 
 # ------------------------------------------------------------------ RAG MOTORU YÜKLEME
@@ -442,19 +442,20 @@ with tabs[7]:
         with c_sel:
             chat_fid = st.selectbox("Danışmanlık Alınacak Firma:", firms['ID'], format_func=lambda x: f"Firma {x}", key="chat_firm_selector")
             selected_firm_context = firms.set_index('ID').loc[chat_fid].to_dict()
+            selected_firm_context['ID'] = chat_fid
         with c_info:
             st.success(f"📌 **Aktif Firma:** Firma {chat_fid} | **Strateji:** {model.labels[selected_firm_context['Kazanan']]} | **Ölçek:** {selected_firm_context['Ölçek']}")
 
     st.markdown("**Hızlı Soru Başlıkları:**")
     qc1, qc2, qc3, qc4 = st.columns(4)
     quick_query = None
-    if qc1.button("⚖️ SKDM ve Karbon Vergisi", use_container_width=True):
+    if qc1.button("⚖️ SKDM ve Karbon Vergisi", width="stretch"):
         quick_query = "SKDM ve Avrupa karbon vergisine nasıl hazırlanmalıyız?"
-    if qc2.button("💰 Hibe ve KOSGEB Teşvikleri", use_container_width=True):
+    if qc2.button("💰 Hibe ve KOSGEB Teşvikleri", width="stretch"):
         quick_query = "Hangi yeşil dönüşüm teşvik ve hibelerinden yararlanabiliriz?"
-    if qc3.button("♻️ Döngüsel Ekonomi & Atık", use_container_width=True):
+    if qc3.button("♻️ Döngüsel Ekonomi & Atık", width="stretch"):
         quick_query = "Plastik ve hammadde atıklarımızı nasıl döngüsel ekonomiye kazandırabiliriz?"
-    if qc4.button("⚡ Çatı GES ve Enerji Tasarrufu", use_container_width=True):
+    if qc4.button("⚡ Çatı GES ve Enerji Tasarrufu", width="stretch"):
         quick_query = "Fabrika çatı GES ve ISO 50001 enerji verimliliği süreci nasıl işler?"
 
     for msg in st.session_state.chat_messages:
