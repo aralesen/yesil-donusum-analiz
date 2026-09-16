@@ -401,39 +401,58 @@ with tabs[6]:
         st.success("Sorun bulunmadı: tüm firmaların puanları eksiksiz ve ölçek içinde.")
 # ------------------------------------------------------------------ yeşil danışman (chatbot)
 with tabs[7]:
-    st.subheader("💬 Bağımsız Yeşil Dönüşüm Asistanı")
-    st.caption("Mevzuat, hibeler, döngüsel ekonomi adımları ve analizinize özel aksiyonlar için danışmanlık alın.")
+    st.subheader("💬 Yeşil Dönüşüm Stratejik Danışmanı")
+    st.caption("Firmanızın FANP analiz sonuçlarına entegre, akademik referanslı ve B2B çözüm ortaklarına yönlendirici karar motoru.")
 
-    # Oturum geçmişi başlatma
     if "chat_messages" not in st.session_state:
         st.session_state.chat_messages = [
-            {"role": "assistant", "content": "Merhaba! Ben Yeşil Dönüşüm Danışmanınızım. Tesisinizin analizi, SKDM mevzuatı, KOSGEB/TÜBİTAK destekleri veya enerji tasarrufu çözümleri hakkında bana soru sorabilirsiniz."}
+            {"role": "assistant", "content": (
+                "👋 **Merhaba! Ben Kurumsal Yeşil Dönüşüm Asistanınızım.**\n\n"
+                "Firmanızın anket analiz sonuçları, SKDM karbon vergisi, KOSGEB/TÜBİTAK yeşil teşvikleri veya "
+                "döngüsel ekonomi yol haritaları hakkında bana danışabilirsiniz. Başlamak için aşağıdan bir soru seçebilir ya da kendi sorunuzu yazabilirsiniz."
+            )}
         ]
 
-    # Firma bağlamını seçme
+    # Firma Seçimi ve Bağlam Entegrasyonu
     selected_firm_context = None
     if not firms.empty:
-        col_c1, col_c2 = st.columns([1, 2])
-        with col_c1:
-            chat_firm_id = st.selectbox("Danışmanlık için odaklanılacak firma:", firms['ID'], format_func=lambda x: f"Firma {x}", key="chat_firm_select")
-            selected_firm_context = firms.set_index('ID').loc[chat_firm_id].to_dict()
-        with col_c2:
-            st.info(f"Seçili Firma Stratejisi: **{model.labels[selected_firm_context['Kazanan']]}** ({selected_firm_context['Ölçek']} Ölçek)")
+        c_sel, c_info = st.columns([1, 2])
+        with c_sel:
+            chat_fid = st.selectbox("Danışmanlık Alınacak Firma:", firms['ID'], format_func=lambda x: f"Firma {x}", key="chat_firm_selector")
+            selected_firm_context = firms.set_index('ID').loc[chat_fid].to_dict()
+        with c_info:
+            st.success(f"📌 **Aktif Firma:** Firma {chat_fid} | **Strateji:** {model.labels[selected_firm_context['Kazanan']]} | **Ölçek:** {selected_firm_context['Ölçek']}")
 
-    # Mesaj geçmişini yazdır
+    # Hızlı Yönlendirme Düğmeleri (Prompt Chips)
+    st.markdown("**Hızlı Soru Başlıkları:**")
+    qc1, qc2, qc3, qc4 = st.columns(4)
+    quick_query = None
+    if qc1.button("⚖️ SKDM ve Karbon Vergisi", use_container_width=True):
+        quick_query = "SKDM ve Avrupa karbon vergisine nasıl hazırlanmalıyız?"
+    if qc2.button("💰 Hibe ve KOSGEB Teşvikleri", use_container_width=True):
+        quick_query = "Hangi yeşil dönüşüm teşvik ve hibelerinden yararlanabiliriz?"
+    if qc3.button("♻️ Döngüsel Ekonomi & Atık", use_container_width=True):
+        quick_query = "Plastik ve hammadde atıklarımızı nasıl döngüsel ekonomiye kazandırabiliriz?"
+    if qc4.button("⚡ Çatı GES ve Enerji Tasarrufu", use_container_width=True):
+        quick_query = "Fabrika çatı GES ve ISO 50001 enerji verimliliği süreci nasıl işler?"
+
+    # Sohbet Geçmişi Render
     for msg in st.session_state.chat_messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-    # Kullanıcı girişi
-    if prompt := st.chat_input("Sorunuzu buraya yazın (Örn: SKDM karbon vergisine nasıl hazırlanmalıyım?)..."):
-        st.session_state.chat_messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
+    # Kullanıcı Girişi
+    prompt_input = st.chat_input("Sorunuzu yazın (Örn: İhracat yaparken karbon vergisinden nasıl muaf olurum?)...")
+    active_prompt = quick_query if quick_query else prompt_input
 
-        # Bağımsız çıkarım motorundan yanıt al
-        yanit = m.local_green_consultant_reply(prompt, selected_firm_context)
+    if active_prompt:
+        st.session_state.chat_messages.append({"role": "user", "content": active_prompt})
+        with st.chat_message("user"):
+            st.markdown(active_prompt)
+
+        # Çıkarım motorundan yanıt üret
+        cevap = m.advanced_green_consultant_reply(active_prompt, selected_firm_context, model)
 
         with st.chat_message("assistant"):
-            st.markdown(yanit)
-        st.session_state.chat_messages.append({"role": "assistant", "content": yanit})
+            st.markdown(cevap)
+        st.session_state.chat_messages.append({"role": "assistant", "content": cevap})
