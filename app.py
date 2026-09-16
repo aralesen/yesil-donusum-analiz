@@ -2,9 +2,6 @@
 """
 Yeşil Dönüşüm Karar Destek Sistemi (Bulanık ANP)
 Çalıştırma:  streamlit run app.py
-
-Arayüz modele göre kendini kurar: küme, kriter ve strateji sayısı ya da puan ölçeği
-değiştiğinde kodda değişiklik gerekmez.
 """
 
 from pathlib import Path
@@ -14,12 +11,17 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
+# Sayfa ayarı her zaman İLK Streamlit komutu olmalıdır!
+st.set_page_config(page_title="Yeşil Dönüşüm Analiz Aracı", page_icon="🌱", layout="wide", initial_sidebar_state="expanded")
+
 import fanp_motor as m
+
 try:
     from rag_motor import GreenRAG
 except ImportError:
     GreenRAG = None
 
+# ------------------------------------------------------------------ RAG MOTORU YÜKLEME
 @st.cache_resource(show_spinner=False)
 def load_rag():
     if GreenRAG is None:
@@ -33,7 +35,8 @@ def load_rag():
         st.sidebar.warning(f"RAG Motoru Başlatılamadı: {e}")
     return None
 
-st.set_page_config(page_title="Yeşil Dönüşüm Analiz Aracı", page_icon="🌱", layout="wide", initial_sidebar_state="expanded")
+rag_engine = load_rag()
+# ------------------------------------------------------------------
 
 ORNEK = Path(__file__).parent / "ornek_anket.xlsx"
 YONTEMLER = {"Tezdeki yöntem (bulanık sentez)": "bulanik",
