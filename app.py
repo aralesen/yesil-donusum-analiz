@@ -386,8 +386,10 @@ with tabs[5]:
         st.dataframe(gw, hide_index=True, width="stretch",
                      column_config={'Global ağırlık (%)': st.column_config.NumberColumn(format='%.2f')})
     st.subheader("Akademik kaynakça")
-    for code, text in m.APA_REFERENCES.items():
-        link = m.REFERENCE_LINKS.get(code)
+    all_ref_dict = {**m.APA_REFERENCES, **{k: v['citation'] for k, v in m.EXTENDED_REFERENCES.items()}}
+    all_link_dict = {**m.REFERENCE_LINKS, **{k: v['link'] for k, v in m.EXTENDED_REFERENCES.items()}}
+    for code, text in all_ref_dict.items():
+        link = all_link_dict.get(code)
         st.markdown(f"**{code}** {text}" + (f" [Kaynağa git]({link})" if link else ""))
 
 # ------------------------------------------------------------------ veri raporu
@@ -399,6 +401,7 @@ with tabs[6]:
         st.dataframe(report, hide_index=True, width="stretch")
     else:
         st.success("Sorun bulunmadı: tüm firmaların puanları eksiksiz ve ölçek içinde.")
+
 # ------------------------------------------------------------------ yeşil danışman (chatbot)
 with tabs[7]:
     st.subheader("💬 Yeşil Dönüşüm Stratejik Danışmanı")
@@ -413,7 +416,6 @@ with tabs[7]:
             )}
         ]
 
-    # Firma Seçimi ve Bağlam Entegrasyonu
     selected_firm_context = None
     if not firms.empty:
         c_sel, c_info = st.columns([1, 2])
@@ -423,7 +425,6 @@ with tabs[7]:
         with c_info:
             st.success(f"📌 **Aktif Firma:** Firma {chat_fid} | **Strateji:** {model.labels[selected_firm_context['Kazanan']]} | **Ölçek:** {selected_firm_context['Ölçek']}")
 
-    # Hızlı Yönlendirme Düğmeleri (Prompt Chips)
     st.markdown("**Hızlı Soru Başlıkları:**")
     qc1, qc2, qc3, qc4 = st.columns(4)
     quick_query = None
@@ -436,12 +437,10 @@ with tabs[7]:
     if qc4.button("⚡ Çatı GES ve Enerji Tasarrufu", use_container_width=True):
         quick_query = "Fabrika çatı GES ve ISO 50001 enerji verimliliği süreci nasıl işler?"
 
-    # Sohbet Geçmişi Render
     for msg in st.session_state.chat_messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-    # Kullanıcı Girişi
     prompt_input = st.chat_input("Sorunuzu yazın (Örn: İhracat yaparken karbon vergisinden nasıl muaf olurum?)...")
     active_prompt = quick_query if quick_query else prompt_input
 
@@ -450,7 +449,6 @@ with tabs[7]:
         with st.chat_message("user"):
             st.markdown(active_prompt)
 
-        # Çıkarım motorundan yanıt üret
         cevap = m.advanced_green_consultant_reply(active_prompt, selected_firm_context, model)
 
         with st.chat_message("assistant"):
