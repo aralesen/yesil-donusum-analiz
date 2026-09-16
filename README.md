@@ -32,41 +32,36 @@ Testler için `pip install pytest` ve ardından `python -m pytest -q tests`.
 
 Depoya `ornek_anket.xlsx` adında bir anket dosyası eklenirse kenar çubuğunda "Tez verisiyle aç" düğmesi çıkar.
 
-## Farklı veriyle kullanmak
+## Veri girişi
 
-Algoritma hiçbir sayıyı sabit varsaymaz. Küme, kriter ve strateji sayısı, uzman puanları, puan ölçeği ve bulanıklık genişliği bir **model** tanımından okunur. Model üç yoldan gelir, öncelik sırasıyla:
+Kullanıcı yalnızca kriter ihtiyaç puanlarını ve ana başlık ağırlık puanlarını girer. Stratejiler (A1, A2, A3, A4) hiçbir şablonda yer almaz; uygulama bu puanlardan hesaplar ve sonuç olarak gösterir. Kenar çubuğunda iki slot vardır, her birinin kendi şablonu bulunur:
 
-1. Kenar çubuğundan yüklenen özel model dosyası,
-2. Anket dosyasının içindeki `MAIN_DATA` (model) sayfası,
-3. Hiçbiri yoksa `fanp_motor.py` içindeki varsayılan model (5 küme, 25 kriter, 4 strateji, 1 ile 9 ölçeği).
+**Tek firma.** `Firma` sayfasında iki blok ve firma bilgileri:
 
-Yeni bir model kurmanın en kolay yolu kenar çubuğundaki **Model şablonunu indir** düğmesidir. Şablonun `MAIN_DATA` sayfasında yan yana üç blok vardır:
+| Kriterler ve ihtiyaç puanları | Ana başlıklar ve ağırlık puanları |
+|---|---|
+| Kriter Kodu, Kriter Adı, Anket Başlığı, Küme Kodu, Puan | Küme Kodu, Küme Adı, Anket Başlığı, Ağırlık Puanı |
 
-| Kriterler ve ihtiyaç puanları | Ana başlıklar ve ağırlık puanları | Uzman değerlendirmesi |
-|---|---|---|
-| Kriter Kodu, Kriter Adı, Anket Başlığı, Küme Kodu, Puan | Küme Kodu, Küme Adı, Anket Başlığı, Ağırlık Puanı | Kriter Kodu, A1: Ad, A2: Ad, ... |
+Ana başlıklar bloğunun altında Firma adı, Ölçek, Sektör ve Motivasyon alanları doldurulur.
 
-* **Anket Başlığı**, anket dosyasındaki sütun başlığıdır; anket bu başlıklarla (ya da doğrudan kodlarla) eşleştirilir.
-* **Puan** ve **Ağırlık Puanı** sütunları doldurulursa dosya tek başına bir firma değerlendirmesi olarak yüklenebilir; boş bırakılırsa sadece model tanımı olarak kullanılır.
-* **Uzman değerlendirmesi** bloğundaki her hücre, stratejinin o kriterdeki ihtiyacı karşılama puanıdır. Girdi tablosudur; strateji sonuçları uygulamada hesaplanır.
-* Kriter bloğunda Küme Kodu yoksa kriter kodunun noktadan önceki kısmı kullanılır (C1.4 için C1). Bloklar arasında boş sütun olması gerekmez; kod etiketli (`C1.1 (Yatırım Mal.)`) ve strateji başlığı parantezli (`A1 (Teknoloji)`) yazılabilir.
-* Ana başlıklar bloğunun altındaki **AYARLAR** kısmında `Ölçek alt`, `Ölçek üst` ve `Bulanıklık` değerleri puan ölçeğini ve üçgen bulanık sayının genişliğini belirler (varsayılan 1, 9, 1).
-* İsteğe bağlı `BAĞIMLILIK` sayfası: satır ve sütunları küme kodları olan, negatif olmayan bir etki matrisi. Verilirse ana başlıklar arası iç bağımlılık süpermatrise eklenir.
+**Çoklu firma.** `Firmalar` sayfası (Firma ID, Ölçek, Sektör, Motivasyon) ve `Puanlar` sayfası: tek bir ID sütunu, her ana başlığın kriterleri ayrı blokta ve en sonda ana başlık ağırlıkları. Boş bırakılan satırlar okunmaz.
 
-Tutarsız bir model (tekrarlanan kod, kümesiz kriter, kriteri olmayan küme, ölçek dışı uzman puanı, yanlış boyutlu bağımlılık matrisi) hesaba girmeden açık bir mesajla reddedilir. Aksiyon planı ya da motivasyon metni tanımlanmamış stratejiler için genel bir metin gösterilir.
+Şablonlarda puan hücrelerine ölçek dışı değer girilmesini engelleyen doğrulama vardır. Eksik ya da ölçek dışı puanı olan firma analize alınmaz ve "Veri raporu" sekmesinde gösterilir.
+
+## Model
+
+Kümeler, kriterler, stratejiler ve uzman değerlendirmesi `fanp_motor.py` içinde tanımlıdır (`DEFAULT_CLUSTERS`, `DEFAULT_CRITERIA`, `DEFAULT_ALTERNATIVES`). Motor bunlardan bağımsız yazılmıştır: küme, kriter ya da strateji sayısı değiştirildiğinde uygulama ve şablonlar kendiliğinden yeni yapıya göre kurulur. Tutarsız bir tanım (tekrarlanan kod, kümesiz kriter, kriteri olmayan küme, ölçek dışı uzman puanı) uygulama açılırken açık bir hata mesajıyla reddedilir.
 
 ## Excel biçimi
 
-Sayfa adları, sütun sırası ve başlık satırının yeri önemli değildir. Puan sayfasının başlık satırında modeldeki başlıklar ve her bloğun başında bir `ID` sütunu bulunmalıdır. Varsayılan model için başlıklar:
+Sayfa adları, sütun sırası ve başlık satırının yeri önemli değildir. Çoklu firma dosyasında puan sayfasının başlık satırında anket başlıkları ve bir `ID` sütunu, tek firma dosyasında kriter kodu, puan, küme kodu ve ağırlık puanı sütunları bulunmalıdır. Varsayılan model için anket başlıkları:
 
 * Ekonomik (C1): Inv. Cost, Oper. Savings, ROI, Access Finance, Market Demand
 * Çevresel (C2): Energy, GHG, Waste, Water, Hazardous
 * Sosyal (C3): H&S, Training, Community, Job Creation, Supplier Comp
 * Teknik (C4): TRL, Compatibility, Monitoring, Stability, Maintenance
 * Yasal ve politika (C5): Reg. Compliance, Legal Compat., Audit Risk, Incentives, EU/CBAM
-* Küme puanları: Main_C1, Main_C2, Main_C3, Main_C4, Main_C5
-
-Demografi sayfasında `Company ID` ve `Company Size` sütunları, isteğe bağlı olarak `Sector` ve `Motivation` sütunları okunur. Puanlar modelin ölçeği içinde olmalıdır. Eksik ya da aralık dışı puanı olan firma analize alınmaz ve "Veri raporu" sekmesinde gösterilir.
+* Ana başlık ağırlıkları: Main_C1, Main_C2, Main_C3, Main_C4, Main_C5
 
 ## Yöntem
 
@@ -92,8 +87,8 @@ Uygulamada karşılaştırma için, öncelikleri süpermatristen önce durulaşt
 * Kriterlerin, kümelerin ve stratejilerin sırası değişince sonuç değişmez.
 * Her kriterde başka bir stratejiden en az onun kadar puan alan strateji geride kalmaz; küme puanı artınca küme ağırlığı azalmaz.
 * Aynı anket farklı Excel düzenleriyle (karışık sütun sırası, birden çok ID bloğu, üstte boş satırlar, fazladan sütunlar, virgüllü ondalıklar) yazılır ve hep aynı veri okunur.
-* Model şablonu indirilip yeniden yüklendiğinde aynı model ve aynı sonuç elde edilir.
-* Arayüz, varsayılan modelle ve 3 küme, 7 strateji, 1 ile 5 ölçekli, iç bağımlılıklı bir modelle uçtan uca çalıştırılır.
+* İki şablon doldurulup yüklendiğinde girilen puanlar birebir okunur; şablonlarda strateji sütunu bulunmadığı ayrıca sınanır.
+* Arayüz, varsayılan modelle ve 3 küme, 7 strateji, 1 ile 5 ölçekli bir modelle uçtan uca çalıştırılır.
 
 ## Metinleri değiştirmek
 

@@ -21,7 +21,6 @@ st.set_page_config(page_title="Yeşil Dönüşüm Analiz Aracı", page_icon="�
 ORNEK = Path(__file__).parent / "ornek_anket.xlsx"
 YONTEMLER = {"Tezdeki yöntem (bulanık sentez)": "bulanik",
              "Durulaştırılmış sentez (karşılaştırma)": "durulastirilmis"}
-OLCEKLER = {"Modeldeki ölçek": None, "1 ile 5": (1, 5), "1 ile 7": (1, 7), "1 ile 9": (1, 9), "1 ile 10": (1, 10)}
 SCALE_ORDER = ['Mikro', 'Küçük', 'Orta', 'Büyük', 'Bilinmiyor']
 
 
@@ -51,26 +50,23 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-@st.cache_data(show_spinner=False)
-def model_yukle(model_bytes):
-    if model_bytes is None:
-        return m.default_model()
-    model = m.read_model(model_bytes)
-    if model is None:
-        raise m.ModelError("Model dosyasında MODEL sayfası bulunamadı. Soldaki şablonu indirip onun biçimini kullanın.")
-    return model
+MODEL = m.default_model()
+TURLER = {"Tek firma": "tek", "Çoklu firma": "coklu"}
+XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
 @st.cache_data(show_spinner=False)
-def hesapla(content, model_bytes, sentez, sim, olcek):
-    model = m.read_model(model_bytes) if model_bytes is not None else None
-    model, survey, demo, rep, info = m.read_workbook(content, model)
-    if olcek is not None:
-        model = model.with_scale(*olcek)
+def hesapla(content, kind, sentez, sim):
+    model, survey, demo, rep, info = m.read_workbook(content, MODEL, kind)
     result = m.analyze(model, survey, demo, rep, sentez=sentez, simulations=sim)
     result['info'] = info
     result['n_input'] = len(survey)
     return result
+
+
+@st.cache_data(show_spinner=False)
+def sablon(kind):
+    return m.single_firm_template_excel(MODEL) if kind == 'tek' else m.multi_firm_template_excel(MODEL)
 
 
 # ------------------------------------------------------------------ kenar çubuğu
@@ -78,35 +74,29 @@ with st.sidebar:
     st.title("FANP Analiz Aracı")
     st.caption("Yeşil dönüşüm strateji belirleme")
     st.header("Veri")
-    up = st.file_uploader("Anket Excel dosyası", type=["xlsx", "xlsm", "xls"],
-                          help="Sayfa adı ve sütun sırası önemli değil; başlıklar modele göre tanınır.")
+    tur_etiket = st.radio("Değerlendirme türü", list(TURLER), horizontal=True,
+                          help="Tek firma: bir firmanın puanları. Çoklu firma: tüm firmaların puanları ve firma bilgileri.")
+    kind = TURLER[tur_etiket]
+    if kind == 'tek':
+        st.caption("Şablonda kriter ihtiyaç puanlarını, ana başlık ağırlık puanlarını ve firma bilgilerini doldurun.")
+    else:
+        st.caption("Şablonun 'Firmalar' sayfasına firma bilgilerini, 'Puanlar' sayfasına her firmanın puanlarını girin.")
+    st.download_button(f"{tur_etiket} şablonunu indir", data=sablon(kind),
+                       file_name="fanp_tek_firma.xlsx" if kind == 'tek' else "fanp_coklu_firma.xlsx",
+                       mime=XLSX_MIME, width="stretch", key=f"sablon_{kind}")
+    up = st.file_uploader(f"{tur_etiket} Excel dosyası", type=["xlsx", "xlsm", "xls"], key=f"upload_{kind}",
+                          help="Sayfa adı ve sütun sırası önemli değil; başlıklar tanınır.")
     if up is not None:
-        st.session_state["content"] = up.getvalue()
-        st.session_state["name"] = up.name
-    if ORNEK.exists() and st.button("Tez verisiyle aç", width="stretch"):
-        st.session_state["content"] = ORNEK.read_bytes()
-        st.session_state["name"] = "Tez anket verisi"
-
-    st.header("Model")
-    mup = st.file_uploader("Özel model (isteğe bağlı)", type=["xlsx"], key="model_file",
-                           help="Şablonda üç blok var: kriterler ve ihtiyaç puanları, ana başlıklar ve ağırlık puanları, "
-                                "uzman değerlendirmesi. Kriter, küme ya da strateji eklemek veya uzman puanlarını "
-                                "değiştirmek için şablonu indirip düzenleyin.")
-    model_bytes = mup.getvalue() if mup is not None else None
-    try:
-        base_model = model_yukle(model_bytes)
-    except (m.ModelError, ValueError) as e:
-        st.error(str(e))
-        base_model, model_bytes = m.default_model(), None
-    st.download_button("Model şablonunu indir", data=m.model_template_excel(base_model), file_name="fanp_model.xlsx",
-                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", width="stretch")
+        st.session_state[f"content_{kind}"] = up.getvalue()
+        st.session_state[f"name_{kind}"] = up.name
+    if kind == 'coklu' and ORNEK.exists() and st.button("Tez verisiyle aç", width="stretch"):
+        st.session_state["content_coklu"] = ORNEK.read_bytes()
+        st.session_state["name_coklu"] = "Tez anket verisi"
 
     st.header("Ayarlar")
     sentez = YONTEMLER[st.radio("Sentez yöntemi", list(YONTEMLER), index=0,
                                 help="Tezdeki yöntem l, m, u değerlerini sona kadar taşır ve net skoru (l + 2m + u) / 4 ile bulur. "
                                      "Karşılaştırma yöntemi öncelikleri önce durulaştırıp normalize eder.")]
-    olcek = OLCEKLER[st.selectbox("Puan ölçeği", list(OLCEKLER), index=0,
-                                  help="Anket farklı bir ölçekle toplandıysa buradan seçin. Uzman matrisi de bu ölçekte olmalı.")]
     sim = st.select_slider("Sağlamlık analizi (simülasyon sayısı)", options=[0, 250, 500, 1000, 2000], value=1000,
                            help="Her puan kendi bulanık aralığında rastgele oynatılır ve kazananın birinci kalma oranı ölçülür.")
 
@@ -128,27 +118,29 @@ def strateji_tanimlari(model):
                         st.caption(desc)
 
 
-if "content" not in st.session_state:
-    strateji_tanimlari(base_model)
-    st.info("Başlamak için soldan anket Excel dosyasını yükleyin" + (" ya da tez verisiyle açın." if ORNEK.exists() else ".") +
-            " Tek bir firmayı değerlendirmek için model şablonundaki puan sütunlarını doldurup anket dosyası olarak yüklemeniz de yeterli.")
-    with st.expander("Excel'de hangi başlıklar olmalı?", expanded=True):
-        st.markdown(f"Model: **{base_model.source}**, {len(base_model.cl_codes)} küme, {len(base_model.codes)} kriter, "
-                    f"{len(base_model.alt_codes)} strateji, puanlar {tr_num(base_model.scale_min, 0)} ile "
-                    f"{tr_num(base_model.scale_max, 0)} arası. Başlık satırında aşağıdaki başlıklar ve her bloğun başında "
-                    "bir `ID` sütunu yeterli. Ölçek, sektör ve motivasyon için `Company ID`, `Company Size`, `Sector`, "
-                    "`Motivation` sütunlu bir sayfa da okunur.")
+if f"content_{kind}" not in st.session_state:
+    strateji_tanimlari(MODEL)
+    if kind == 'tek':
+        st.info("Soldan tek firma şablonunu indirin, firmanın puanlarını doldurun ve dosyayı yükleyin.")
+    else:
+        st.info("Soldan çoklu firma şablonunu indirin, firmaların bilgilerini ve puanlarını doldurun ve dosyayı yükleyin"
+                + (" ya da tez verisiyle açın." if ORNEK.exists() else "."))
+    with st.expander("Hangi puanlar giriliyor?", expanded=True):
+        st.markdown(f"{len(MODEL.cl_codes)} ana başlık altında {len(MODEL.codes)} kriter var. Her kriter için "
+                    f"{MODEL.scale_min:g} ile {MODEL.scale_max:g} arasında bir **ihtiyaç puanı** "
+                    f"({MODEL.scale_min:g} yeterli yetkinlik, {MODEL.scale_max:g} kritik eksiklik), her ana başlık için de "
+                    "bir **ağırlık puanı** girilir. Stratejiler girilmez; uygulama bu puanlardan hesaplar.")
         cols = st.columns(3)
-        for k, (code, name, header) in enumerate(base_model.clusters):
+        for k, (code, name, header) in enumerate(MODEL.clusters):
             with cols[k % 3]:
-                st.markdown(f"**{name} ({code})**  \n" + ", ".join(base_model.criteria[i][1] for i in base_model.members[k]))
-        with cols[len(base_model.clusters) % 3]:
-            st.markdown("**Küme puanları**  \n" + ", ".join(c[2] for c in base_model.clusters))
+                st.markdown(f"**{name} ({code})**  \n" + ", ".join(MODEL.criteria[i][1] for i in MODEL.members[k]))
+        with cols[len(MODEL.clusters) % 3]:
+            st.markdown("**Ana başlık ağırlıkları**  \n" + ", ".join(c[2] for c in MODEL.clusters))
     st.stop()
 
 try:
     with st.spinner("FANP hesaplanıyor…"):
-        res = hesapla(st.session_state["content"], model_bytes, sentez, sim, olcek)
+        res = hesapla(st.session_state[f"content_{kind}"], kind, sentez, sim)
 except (m.ModelError, ValueError) as e:
     st.error(str(e))
     st.stop()
@@ -170,8 +162,7 @@ with st.sidebar:
     st.header("Çıktı")
     st.download_button("Sonuçları Excel olarak indir", data=m.results_excel(res), file_name="fanp_sonuclari.xlsx",
                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", width="stretch")
-    st.caption(f"{st.session_state['name']}: {res['n_input']} firmadan {len(firms)} tanesi analiz edildi. "
-               f"Model: {model.source}.")
+    st.caption(f"{st.session_state[f'name_{kind}']}: {res['n_input']} firmadan {len(firms)} tanesi analiz edildi.")
 
 other_label = "tezdeki yöntem" if res['other'] == 'bulanik' else "durulaştırılmış sentez"
 share_cols = [f'{a} payı (%)' for a in A]
@@ -182,22 +173,26 @@ tabs = st.tabs(["Genel bakış", "Firmalar", "Yol haritası", "Firma ayrıntıs�
 with tabs[0]:
     g = res['group'].sort_values('Pay (%)', ascending=False)
     win = g.iloc[0]
-    st.markdown(f'<div class="muted">Sektör geneli: {len(firms)} firmanın ortak kararı (puanların geometrik ortalaması)</div>'
+    tek = len(firms) == 1
+    baslik = (f"Firma {firms.iloc[0]['ID']} için en uygun strateji" if tek
+              else f"Sektör geneli: {len(firms)} firmanın ortak kararı (puanların geometrik ortalaması)")
+    st.markdown(f'<div class="muted">{baslik}</div>'
                 f'<div class="verdict" style="color:{model.colors[win["Kod"]]}">{model.names[win["Kod"]]}</div>',
                 unsafe_allow_html=True)
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Sektör genelinde payı", tr_pct(win['Pay (%)']),
+    c1.metric("Strateji payı" if tek else "Sektör genelinde payı", tr_pct(win['Pay (%)']),
               f"ikinciden {tr_num(win['Pay (%)'] - g.iloc[1]['Pay (%)'])} puan önde", delta_color="off", delta_arrow="off")
-    c2.metric("Sektör kararının birincilik olasılığı", tr_pct(win['Birincilik olasılığı (%)'], 0))
-    c3.metric("Bu stratejiyi seçen firma", f"{(firms['Kazanan'] == win['Kod']).sum()} / {len(firms)}")
-    if sim > 0:
+    c2.metric("Birincilik olasılığı" if tek else "Sektör kararının birincilik olasılığı", tr_pct(win['Birincilik olasılığı (%)'], 0))
+    if not tek:
+        c3.metric("Bu stratejiyi seçen firma", f"{(firms['Kazanan'] == win['Kod']).sum()} / {len(firms)}")
+    if sim > 0 and not tek:
         c4.metric("Sağlam kararlı firma", f"{(firms['Birincilik olasılığı (%)'] >= 80).sum()} / {len(firms)}",
                   "birincilik olasılığı %80 ve üstü", delta_color="off", delta_arrow="off")
-    st.info(m.commentary(model, win['Kod']))
+    if not tek:
+        st.info(m.commentary(model, win['Kod']))
 
-    left, right = st.columns([1.1, 1])
-    with left:
-        st.subheader("Sektör geneli strateji payları")
+    def strateji_paylari():
+        st.subheader("Strateji payları" if tek else "Sektör geneli strateji payları")
         gd = g.assign(Etiket=g['Pay (%)'].map(tr_pct))
         base = alt.Chart(gd).encode(y=alt.Y('Strateji:N', sort='-x', title=None, axis=alt.Axis(labelLimit=320)),
                                     x=alt.X('Pay (%):Q', title='Pay (%)'))
@@ -205,28 +200,35 @@ with tabs[0]:
                                                                  tooltip=['Strateji', alt.Tooltip('Pay (%):Q', format='.2f'),
                                                                           alt.Tooltip('Birincilik olasılığı (%):Q', format='.0f')])
                          + base.mark_text(align='left', dx=4).encode(text='Etiket:N')).properties(height=bar_h), width="stretch")
-    with right:
-        st.subheader("Firmaların kazanan stratejisi")
-        cnt = firms['Kazanan'].value_counts().reindex(A, fill_value=0).rename_axis('Kod').reset_index(name='Firma')
-        cnt['Strateji'] = cnt['Kod'].map(model.labels)
-        st.altair_chart(alt.Chart(cnt).mark_bar(cornerRadiusEnd=4).encode(
-            y=alt.Y('Strateji:N', sort=label_order, title=None, axis=alt.Axis(labelLimit=320)),
-            x=alt.X('Firma:Q', title='Firma sayısı', axis=alt.Axis(tickMinStep=1)),
-            color=alt.Color('Strateji:N', scale=COLOR_SCALE, legend=None), tooltip=['Strateji', 'Firma']
-        ).properties(height=bar_h), width="stretch")
 
-    st.subheader("Sektör ve ölçek kırılımı")
-    k1, k2 = st.columns(2)
-    order_scale = [s for s in SCALE_ORDER if s in set(firms['Ölçek'])]
-    for col, field, sort in [(k1, 'Sektör', None), (k2, 'Ölçek', order_scale)]:
-        d = firms.groupby([field, 'Strateji']).size().reset_index(name='Firma')
-        col.markdown("**Sektöre göre**" if field == 'Sektör' else "**Ölçeğe göre**")
-        col.altair_chart(alt.Chart(d).mark_bar(size=22).encode(
-            y=alt.Y(f'{field}:N', sort=sort, title=None, axis=alt.Axis(labelOverlap=False, labelLimit=200)),
-            x=alt.X('Firma:Q', stack='zero', title='Firma sayısı', axis=alt.Axis(tickMinStep=1)),
-            color=alt.Color('Strateji:N', scale=COLOR_SCALE, legend=None),
-            tooltip=[field, 'Strateji', 'Firma']).properties(height=36 * firms[field].nunique() + 40), width="stretch")
-    st.caption("Renkler, üstteki grafiklerdeki strateji renkleriyle aynıdır; ayrıntı için çubukların üzerine gelin.")
+    if tek:
+        strateji_paylari()
+    else:
+        left, right = st.columns([1.1, 1])
+        with left:
+            strateji_paylari()
+        with right:
+            st.subheader("Firmaların kazanan stratejisi")
+            cnt = firms['Kazanan'].value_counts().reindex(A, fill_value=0).rename_axis('Kod').reset_index(name='Firma')
+            cnt['Strateji'] = cnt['Kod'].map(model.labels)
+            st.altair_chart(alt.Chart(cnt).mark_bar(cornerRadiusEnd=4).encode(
+                y=alt.Y('Strateji:N', sort=label_order, title=None, axis=alt.Axis(labelLimit=320)),
+                x=alt.X('Firma:Q', title='Firma sayısı', axis=alt.Axis(tickMinStep=1)),
+                color=alt.Color('Strateji:N', scale=COLOR_SCALE, legend=None), tooltip=['Strateji', 'Firma']
+            ).properties(height=bar_h), width="stretch")
+
+        st.subheader("Sektör ve ölçek kırılımı")
+        k1, k2 = st.columns(2)
+        order_scale = [s for s in SCALE_ORDER if s in set(firms['Ölçek'])]
+        for col, field, sort in [(k1, 'Sektör', None), (k2, 'Ölçek', order_scale)]:
+            d = firms.groupby([field, 'Strateji']).size().reset_index(name='Firma')
+            col.markdown("**Sektöre göre**" if field == 'Sektör' else "**Ölçeğe göre**")
+            col.altair_chart(alt.Chart(d).mark_bar(size=22).encode(
+                y=alt.Y(f'{field}:N', sort=sort, title=None, axis=alt.Axis(labelOverlap=False, labelLimit=200)),
+                x=alt.X('Firma:Q', stack='zero', title='Firma sayısı', axis=alt.Axis(tickMinStep=1)),
+                color=alt.Color('Strateji:N', scale=COLOR_SCALE, legend=None),
+                tooltip=[field, 'Strateji', 'Firma']).properties(height=36 * firms[field].nunique() + 40), width="stretch")
+        st.caption("Renkler, üstteki grafiklerdeki strateji renkleriyle aynıdır; ayrıntı için çubukların üzerine gelin.")
 
 # ------------------------------------------------------------------ firmalar
 with tabs[1]:
@@ -369,7 +371,7 @@ with tabs[5]:
 8. Sektör geneli için tüm firmaların puanlarının geometrik ortalaması aynı modelden geçirilir.
 9. Sağlamlık: her puan kendi üçgen dağılımından {sim} kez örneklenir, kazananın birinci kalma oranı ölçülür.
 """)
-    st.caption(f"Model: {model.source}. {len(model.cl_codes)} küme, {len(model.codes)} kriter, {len(A)} strateji.")
+    st.caption(f"{len(model.cl_codes)} ana başlık, {len(model.codes)} kriter, {len(A)} strateji.")
     st.subheader("Yöntem geçerlilik testi")
     st.caption("Bir firmanın ihtiyacı tek bir kümede kritik (ölçek üstü), geri kalan her yerde asgari (ölçek altı) ise "
                "uzman tablosunun o kümede ihtiyacı en iyi karşıladığını söylediği strateji kazanmalıdır.")
@@ -379,8 +381,6 @@ with tabs[5]:
                                'Tezdeki yöntem': [mark(x, e) for x, e in zip(vt['Kazanan (bulanik)'], vt['Beklenen'])],
                                'Durulaştırılmış sentez': [mark(x, e) for x, e in zip(vt['Kazanan (durulastirilmis)'], vt['Beklenen'])]}),
                  hide_index=True, width="stretch")
-    st.subheader("Model: kriterler ve uzman matrisi")
-    st.dataframe(m.model_table(model), hide_index=True, width="stretch")
     with st.expander("Sektör geneli global kriter ağırlıkları"):
         gw = res['group_weights'].assign(**{'Global ağırlık (%)': lambda d: d['Global ağırlık'] * 100}).drop(columns='Global ağırlık')
         st.dataframe(gw, hide_index=True, width="stretch",
@@ -393,8 +393,8 @@ with tabs[5]:
 # ------------------------------------------------------------------ veri raporu
 with tabs[6]:
     info = res.get('info', {})
-    st.caption(f"Puan sayfası: {info.get('puan_sayfasi', 'bulunamadı')}. Demografi sayfası: "
-               f"{info.get('demografi_sayfasi', 'bulunamadı')}. Model: {info.get('model', model.source)}.")
+    st.caption(f"Puan sayfası: {info.get('puan_sayfasi', 'bulunamadı')}. Firma bilgileri: "
+               f"{info.get('demografi_sayfasi', 'bulunamadı')}.")
     if len(report):
         st.dataframe(report, hide_index=True, width="stretch")
     else:

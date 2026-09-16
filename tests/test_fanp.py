@@ -279,37 +279,6 @@ def test_excel_okuma_duzenden_bagimsiz(seed):
     assert np.allclose(res['firms'][[f'{a} payı (%)' for a in model.alt_codes]].sum(axis=1), 100)
 
 
-@pytest.mark.parametrize('seed', range(15))
-def test_model_dosyasi_gidis_donus(seed):
-    """Model şablonu indirilip yeniden yüklendiğinde aynı model ve aynı sonuç."""
-    rng = np.random.default_rng(700 + seed)
-    model = random_model(rng)
-    back = m.read_model(m.model_template_excel(model))
-    assert back.codes == model.codes and back.cl_codes == model.cl_codes and back.alt_codes == model.alt_codes
-    assert [c[3] for c in back.criteria] == [c[3] for c in model.criteria]
-    assert np.allclose(back.alt_matrix, model.alt_matrix)
-    assert (back.scale_min, back.scale_max, back.spread) == (model.scale_min, model.scale_max, model.spread)
-    assert (back.dependence is None) == (model.dependence is None)
-    R, C = random_scores(rng, model, 3)
-    assert np.allclose(m.run_fanp(back, R, C)['net'], m.run_fanp(model, R, C)['net'])
-
-
-def test_model_dosyasi_anket_icinde():
-    rng = np.random.default_rng(1)
-    model = random_model(rng, dependence=False)
-    R, C = random_scores(rng, model, 4)
-    ids = ['1', '2', '3', '4']
-    survey_bytes = write_survey_excel(rng, model, R, C, ids, 3)
-    buf = io.BytesIO()
-    with pd.ExcelWriter(buf, engine='openpyxl') as xw:
-        for sh, df in pd.read_excel(io.BytesIO(survey_bytes), sheet_name=None, header=None).items():
-            df.to_excel(xw, sheet_name=sh, index=False, header=False)
-        m._write_model_sheet(xw, model)
-    got_model, survey, *_ = m.read_workbook(buf.getvalue())
-    assert got_model.source.startswith("'MAIN_DATA'") and got_model.codes == model.codes
-    assert len(survey) == 4
-
-
 def test_eksik_ve_aralik_disi_puanlar_raporlanir():
     model = m.default_model()
     rng = np.random.default_rng(3)
@@ -364,55 +333,128 @@ def test_tutarlilik_orani(seed):
     assert np.all(np.abs(crs.values) < 1e-9)
 
 
-@pytest.mark.parametrize('seed', range(10))
-def test_sablon_puanlariyla_tek_firma(seed):
-    """Şablonun puan sütunları doldurulup yüklenirse tek firma değerlendirmesi yapılır."""
-    rng = np.random.default_rng(900 + seed)
+# ----------------------------------------------------------------------------- şablonlar
+def _fill_single(model, R, C, info):
+    import openpyxl
+    wb = openpyxl.load_workbook(io.BytesIO(m.single_firm_template_excel(model)))
+    ws = wb['Firma']
+    hdr = {str(ws.cell(2, c).value): c for c in range(1, ws.max_column + 1) if ws.cell(2, c).value}
+    score_c = next(c for h, c in hdr.items() if h.startswith('Puan'))
+    weight_c = next(c for h, c in hdr.items() if h.startswith('Ağırlık'))
+    for i in range(len(model.codes)):
+        if R[i] is not None and not np.isnan(R[i]):
+            ws.cell(3 + i, score_c, float(R[i]))
+    for k in range(len(model.cl_codes)):
+        ws.cell(3 + k, weight_c, float(C[k]))
+    for r in range(1, ws.max_row + 1):
+        lab = ws.cell(r, weight_c - 3).value
+        if lab in info:
+            ws.cell(r, weight_c - 2, info[lab])
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def _template_text(data):
+    import openpyxl
+    wb = openpyxl.load_workbook(io.BytesIO(data))
+    return [str(c.value) for ws in wb for row in ws.iter_rows() for c in row if c.value is not None]
+
+
+@pytest.mark.parametrize('seed', range(12))
+def test_sablonlarda_strateji_yok(seed):
+    """Stratejiler sonuçtur: iki şablonda da strateji kodu, adı ya da uzman puanı bulunmaz."""
+    rng = np.random.default_rng(1000 + seed)
+    model = random_model(rng) if seed else m.default_model()
+    for data in (m.single_firm_template_excel(model), m.multi_firm_template_excel(model)):
+        cells = _template_text(data)
+        for code, name in model.alternatives:
+            assert all(c.strip() != code and not c.startswith(code + ':') and name not in c for c in cells)
+    cells = set(_template_text(m.single_firm_template_excel(model)))
+    assert set(model.codes) <= cells and set(model.cl_codes) <= cells
+
+
+@pytest.mark.parametrize('seed', range(15))
+def test_tek_firma_sablonu(seed):
+    rng = np.random.default_rng(1100 + seed)
     model = random_model(rng)
     R, C = random_scores(rng, model, 1)
-    content = m.model_template_excel(model, R[0], C[0])
-    got_model, survey, demo, rep, info = m.read_workbook(content)
-    assert got_model.codes == model.codes and list(survey.index) == ['1']
-    res = m.analyze(got_model, survey, demo, rep, simulations=0)
+    info = {'Firma adı': f'Firma {seed}', 'Ölçek': 'Orta', 'Sektör': 'Metal', 'Motivasyon': 'Cost reduction'}
+    _, survey, demo, rep, _ = m.read_workbook(_fill_single(model, R[0], C[0], info), model, kind='tek')
+    fid = f'Firma {seed}'
+    assert list(survey.index) == [fid]
+    assert np.allclose(survey.loc[fid, model.codes].values.astype(float), R[0])
+    assert np.allclose(survey.loc[fid, model.cl_codes].values.astype(float), C[0])
+    res = m.analyze(model, survey, demo, rep, simulations=0)
+    row = res['firms'].iloc[0]
+    assert row['Ölçek'] == 'Orta' and row['Sektör'] == 'Metal' and row['Motivasyon'] == 'Cost reduction'
     expect = m.run_fanp(model, R, C)['net'][0]
-    shares = res['firms'][[f'{a} payı (%)' for a in model.alt_codes]].values[0] / 100
+    shares = row[[f'{a} payı (%)' for a in model.alt_codes]].values.astype(float) / 100
     assert np.allclose(shares, expect / expect.sum())
 
 
-def test_elle_kurulmus_main_data_duzeni():
-    """Bloklar arasında boşluk olmayan, kriter bloğunda küme kodu sütunu bulunmayan, kodları etiketli
-    ('C1.1 (Yatırım)') ve strateji başlıkları parantezli ('A1 (Teknoloji)') elle kurulmuş düzen."""
-    rng = np.random.default_rng(42)
-    K, per, A = 3, [2, 3, 2], 4
-    codes = [f"C{k + 1}.{j + 1}" for k in range(K) for j in range(per[k])]
-    R = rng.integers(1, 10, len(codes))
-    C = rng.integers(1, 10, K)
-    mat = rng.integers(1, 10, (len(codes), A))
-    header = ['Kriter Kodu', 'Kriter Adı', 'Puan(1-9)', None, 'Cluster_Code', 'Cluster_Weight_Score', 'Kriter Kodu'] + \
-             [f"A{a + 1} (Strateji {a + 1})" for a in range(A)]
-    rows = [header]
-    for i, code in enumerate(codes):
-        row = [code, f"Ad {i}", int(R[i]), None, None, None, f"{code} (etiket {i})"] + [int(x) for x in mat[i]]
-        if i < K:
-            row[4], row[5] = f"C{i + 1}", int(C[i])
+@pytest.mark.parametrize('seed', range(15))
+def test_coklu_firma_sablonu(seed):
+    import openpyxl
+    rng = np.random.default_rng(1200 + seed)
+    model = random_model(rng)
+    n = int(rng.integers(1, 12))
+    R, C = random_scores(rng, model, n)
+    wb = openpyxl.load_workbook(io.BytesIO(m.multi_firm_template_excel(model)))
+    firms, sc = wb['Firmalar'], wb['Puanlar']
+    hdr = {sc.cell(2, c).value: c for c in range(1, sc.max_column + 1) if sc.cell(2, c).value}
+    rows = rng.choice(30, n, replace=False)
+    for d, r in enumerate(rows):
+        firms.cell(2 + int(r), 2, ['Mikro', 'Küçük', 'Orta', 'Büyük'][d % 4])
+        for j, code in enumerate(model.codes):
+            sc.cell(3 + int(r), hdr[model.header_of[code]], float(R[d, j]))
+        for k, code in enumerate(model.cl_codes):
+            sc.cell(3 + int(r), hdr[model.header_of[code]], float(C[d, k]))
+    buf = io.BytesIO()
+    wb.save(buf)
+    _, survey, demo, rep, _ = m.read_workbook(buf.getvalue(), model, kind='coklu')
+    assert sorted(survey.index, key=m.id_key) == sorted([str(int(r) + 1) for r in rows], key=m.id_key)
+    for d, r in enumerate(rows):
+        assert np.allclose(survey.loc[str(int(r) + 1), model.codes].values.astype(float), R[d])
+        assert np.allclose(survey.loc[str(int(r) + 1), model.cl_codes].values.astype(float), C[d])
+    assert not [x for x in rep if x['Tür'] in ('Eksik puan', 'Veri')]
+    assert len(m.analyze(model, survey, demo, rep, simulations=0)['firms']) == n
+
+
+def test_calisma_dosyasi_duzeni_tek_firma():
+    """Elle kurulmuş çalışma dosyası düzeni: bloklar arasında boşluk yok, İngilizce başlıklar, etiketli kodlar ve
+    sağda strateji sütunları. Sadece kriter puanları ve ana başlık ağırlıkları okunur, strateji sütunları yok sayılır."""
+    model = m.default_model()
+    rng = np.random.default_rng(7)
+    R = rng.integers(1, 10, len(model.codes))
+    C = rng.integers(1, 10, len(model.cl_codes))
+    rows = [['Kriter Kodu', 'Kriter Adı', 'Puan(1-9)', None, 'Cluster_Code', 'Cluster_Weight_Score', 'Kriter Kodu',
+             'A1 (Teknoloji)', 'A2 (Döngüsel)', 'A3 (Sosyal)', 'A4 (Yasal)']]
+    for i, code in enumerate(model.codes):
+        row = [code, f"ad {i}", int(R[i]), None, None, None, f"{code} (etiket)", 1, 2, 3, 4]
+        if i < len(model.cl_codes):
+            row[4], row[5] = model.cl_codes[i], int(C[i])
         rows.append(row)
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine='openpyxl') as xw:
         pd.DataFrame(rows).to_excel(xw, sheet_name='MAIN_DATA', index=False, header=False)
-    model, survey, *_ = m.read_workbook(buf.getvalue())
-    assert model.codes == codes and model.cl_codes == ['C1', 'C2', 'C3']
-    assert [c[3] for c in model.criteria] == [c.split('.')[0] for c in codes]
-    assert model.names == {f"A{a + 1}": f"Strateji {a + 1}" for a in range(A)}
-    assert np.allclose(model.alt_matrix, mat)
-    assert np.allclose(survey.loc['1', codes].values.astype(float), R)
-    assert np.allclose(survey.loc['1', ['C1', 'C2', 'C3']].values.astype(float), C)
+    _, survey, _, rep, _ = m.read_workbook(buf.getvalue(), model, kind='tek')
+    assert np.allclose(survey.iloc[0][model.codes].values.astype(float), R)
+    assert np.allclose(survey.iloc[0][model.cl_codes].values.astype(float), C)
+    assert not rep
 
 
-def test_uzman_blogu_eksikse_acik_hata():
-    rows = [['Kriter Kodu', 'Kriter Adı', 'Puan', None, 'Küme Kodu', 'Ağırlık Puanı'],
-            ['C1.1', 'a', 3, None, 'C1', 5], ['C1.2', 'b', 4, None, None, None]]
-    buf = io.BytesIO()
-    with pd.ExcelWriter(buf, engine='openpyxl') as xw:
-        pd.DataFrame(rows).to_excel(xw, sheet_name='MAIN_DATA', index=False, header=False)
-    with pytest.raises(m.ModelError):
-        m.read_model(buf.getvalue())
+def test_tek_firma_eksik_puan_raporlanir():
+    model = m.default_model()
+    rng = np.random.default_rng(9)
+    R, C = random_scores(rng, model, 1)
+    R[0, 4] = np.nan
+    _, survey, demo, rep, _ = m.read_workbook(_fill_single(model, R[0], C[0], {}), model, kind='tek')
+    res = m.analyze(model, survey, demo, rep, simulations=0)
+    assert res['firms'].empty and 'Eksik puan' in set(res['report']['Tür'])
+
+
+def test_yanlis_tur_dosyasi_acik_hata():
+    model = m.default_model()
+    with pytest.raises(ValueError):
+        m.read_workbook(m.multi_firm_template_excel(model), model, kind='tek')

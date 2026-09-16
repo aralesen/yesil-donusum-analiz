@@ -3,10 +3,8 @@
 Bulanık ANP (FANP) hesap motoru.
 
 Algoritma veriden bağımsızdır: küme, kriter ve strateji sayısı, uzman matrisi, puan ölçeği ve
-bulanıklık genişliği bir Model nesnesinden okunur. Model üç yoldan gelir:
-  1. Ayrı yüklenen model dosyası (MAIN_DATA sayfası),
-  2. Anket dosyasının içindeki MAIN_DATA sayfası,
-  3. Hiçbiri yoksa aşağıdaki varsayılan model.
+bulanıklık genişliği bir Model nesnesinden okunur. Model (kümeler, kriterler, stratejiler ve uzman değerlendirmesi) bu dosyada tanımlıdır; kullanıcılar
+yalnızca kriter ihtiyaç puanlarını ve ana başlık ağırlık puanlarını girer. Stratejiler sonuçtur.
 Modül genel durum tutmaz; her çağrı kendi veri raporunu döndürür.
 """
 
@@ -528,35 +526,25 @@ def _header_row(raw, lookup, min_hits, max_rows=20):
     return (best, hits) if best is not None and hits >= min_hits else (None, hits)
 
 
-# Model sayfası (MAIN_DATA düzeni): aynı başlık satırında, boş sütunlarla ayrılmış üç blok.
-#   1) Kriterler:  Kriter Kodu | Kriter Adı | Anket Başlığı | Küme Kodu | Puan (1-9)
-#   2) Ana başlıklar: Küme Kodu | Küme Adı | Anket Başlığı | Ağırlık Puanı (1-9)
-#   3) Uzman değerlendirmesi: Kriter Kodu | A1: Ad | A2: Ad | ...  (girdi; sonuç değildir)
-# Anket Başlığı, Kriter Adı, Küme Adı, kriter bloğundaki Küme Kodu ve puan sütunları isteğe bağlıdır.
-# Kriterin küme kodu yoksa kodun noktadan önceki kısmı kullanılır (C1.4 -> C1).
-BLOCK_ALIASES = {
+# Tek firma sayfası: aynı başlık satırında iki blok (aralarında boş sütun olabilir ya da olmayabilir).
+#   Kriterler:     Kriter Kodu | Kriter Adı | Anket Başlığı | Küme Kodu | Puan
+#   Ana başlıklar: Küme Kodu | Küme Adı | Anket Başlığı | Ağırlık Puanı
+# Sayfadaki diğer sütunlar (örneğin eski çalışma dosyalarındaki ek tablolar) okunmaz.
+# Firma bilgileri: 'Firma adı', 'Ölçek', 'Sektör', 'Motivasyon' etiketlerinin sağındaki hücreler.
+FIELD_ALIASES = {
     'code': ['kriter kodu', 'criterion code', 'criteria code'],
-    'name': ['kriter adı', 'kriter adi', 'criterion name', 'kriter'],
     'header': ['anket başlığı', 'anket basligi', 'kriter başlığı', 'survey header'],
     'cl_code': ['küme kodu', 'kume kodu', 'cluster code', 'cluster_code', 'ana başlık kodu'],
-    'cl_name': ['küme adı', 'kume adi', 'cluster name', 'ana başlık'],
-    'score': ['puan', 'score', 'ihtiyaç puanı'],
-    'weight': ['ağırlık puanı', 'agirlik puani', 'küme ağırlık puanı', 'cluster weight score', 'cluster_weight_score', 'weight score'],
+    'cl_header': [],
 }
-_BLOCK_KEYS = {norm(a): k for k, v in BLOCK_ALIASES.items() for a in v}
-
-
-def _block_key(v):
-    n = norm(v)
-    if not n:
-        return None
-    if n in _BLOCK_KEYS:
-        return _BLOCK_KEYS[n]
-    if n.startswith('puan'):
-        return 'score'
-    if 'agirlik' in n or 'ağirlik' in n or 'weight' in n:
-        return 'weight'
-    return None
+_FIELD_KEYS = {norm(a): k for k, v in FIELD_ALIASES.items() for a in v}
+INFO_LABELS = {
+    'id': ['firma adı', 'firma adi', 'firma', 'firma id', 'company', 'company id', 'company name'],
+    'scale': ['ölçek', 'olcek', 'firma ölçeği', 'company size', 'size'],
+    'sector': ['sektör', 'sektor', 'sector'],
+    'motivation': ['motivasyon', 'motivation'],
+}
+_INFO_KEYS = {norm(a): k for k, v in INFO_LABELS.items() for a in v}
 
 
 def _blank(v):
@@ -571,159 +559,77 @@ def _lead_code(v):
     return norm_id(mt.group(1)) if mt else None
 
 
-def _alt_header(v):
-    """'A1: Yeşil Üretim' veya 'A1 (Teknoloji)' -> ('A1', 'Yeşil Üretim')"""
-    mt = re.match(r'^\s*([^\s:(]+)\s*[:(]?\s*(.*?)\)?\s*$', str(v))
-    return mt.group(1), (mt.group(2).strip() or mt.group(1))
+def _field_key(v):
+    n = norm(v)
+    if not n:
+        return None
+    if n in _FIELD_KEYS:
+        return _FIELD_KEYS[n]
+    if n.startswith('puan') or n == 'score':
+        return 'score'
+    if 'agirlik' in n or 'ağirlik' in n or 'weight' in n:
+        return 'weight'
+    return None
 
 
-def parse_model_sheet(raw):
-    """Döndürür: {'spec': Model argümanları, 'ratings': {kod: puan}, 'clusters': {kod: puan}} ya da None."""
+def parse_single_firm_sheet(model, raw, rep):
+    """Döndürür: (anket: 1 satır, demografi: 1 satır) ya da None."""
     for r in range(min(15, raw.shape[0])):
-        row = [raw.iat[r, j] for j in range(raw.shape[1])]
-        keys = [_block_key(v) for v in row]
-        if keys.count('code') < 1 or 'cl_code' not in keys:
+        keys = [_field_key(raw.iat[r, j]) for j in range(raw.shape[1])]
+        if 'cl_code' not in keys or 'score' not in keys or 'weight' not in keys:
             continue
-        # boş başlıklarla ayrılmış bitişik bloklar
-        blocks, cur = [], []
-        for j, v in enumerate(row):
-            if _blank(v):
-                if cur:
-                    blocks.append(cur)
-                cur = []
-            else:
-                cur.append(j)
-        if cur:
-            blocks.append(cur)
-        # boşluksuz yan yana duran blokları kod sütunlarından ayır (Cluster_Code | ... | Kriter Kodu | A1 ...)
-        split = []
-        for bl in blocks:
-            part = [bl[0]]
-            for j in bl[1:]:
-                if keys[j] == 'code' or (keys[j] == 'cl_code' and keys[part[0]] != 'code'):
-                    split.append(part)
-                    part = [j]
-                else:
-                    part.append(j)
-            split.append(part)
-        blocks = split
-        crit_b = clus_b = expert_b = None
-        for bl in blocks:
-            bk = [keys[j] for j in bl]
-            is_expert = bk[0] == 'code' and any(k is None for k in bk[1:])
-            if is_expert and expert_b is None:
-                expert_b = bl
-            elif bk[0] == 'code' and not is_expert and crit_b is None:
-                crit_b = bl
-            elif bk[0] == 'cl_code' and clus_b is None:
-                clus_b = bl
-        if crit_b is None or clus_b is None:
+        score_c = keys.index('score')
+        code_c = next((j for j in range(score_c) if keys[j] in ('code', 'header')), None)
+        cl_c = next((j for j in range(score_c + 1, len(keys)) if keys[j] == 'cl_code'), None)
+        weight_c = next((j for j in range((cl_c or len(keys)) + 1, len(keys)) if keys[j] == 'weight'), None)
+        if code_c is None or cl_c is None or weight_c is None:
             continue
-        if expert_b is None:
-            raise ModelError("Model sayfasında uzman değerlendirmesi bloğu (Kriter Kodu ve strateji sütunları) bulunamadı.")
-        col = lambda bl, key: next((j for j in bl if keys[j] == key), None)
+        head_c = next((j for j in range(code_c + 1, score_c) if keys[j] == 'header'), None)
+        clhead_c = next((j for j in range(cl_c + 1, weight_c) if keys[j] == 'header'), None)
 
-        criteria, ratings = [], {}
-        for rr in range(r + 1, raw.shape[0]):
-            code = _lead_code(raw.iat[rr, col(crit_b, 'code')])
-            if code is None:
-                if criteria:
-                    break
-                continue
-            get = lambda key, default: (str(raw.iat[rr, col(crit_b, key)]).strip()
-                                        if col(crit_b, key) is not None and not _blank(raw.iat[rr, col(crit_b, key)]) else default)
-            clc = get('cl_code', code.split('.')[0])
-            criteria.append((code, get('header', code), get('name', code), norm_id(clc)))
-            if col(crit_b, 'score') is not None:
-                ratings[code] = to_number(raw.iat[rr, col(crit_b, 'score')])
+        def resolve(row, cand_cols):
+            for c in cand_cols:
+                if c is None:
+                    continue
+                v = raw.iat[row, c]
+                for key in (_lead_code(v), v):
+                    if not _blank(key) and norm(key) in model.lookup:
+                        return model.lookup[norm(key)]
+            return None
 
-        clusters, cl_scores = [], {}
-        for rr in range(r + 1, raw.shape[0]):
-            code = _lead_code(raw.iat[rr, col(clus_b, 'cl_code')])
-            if code is None:
-                if clusters:
-                    break                                   # bloğun sonu (altındaki AYARLAR okunmaz)
-                continue
-            if code in [c[0] for c in clusters]:
-                continue
-            get = lambda key, default: (str(raw.iat[rr, col(clus_b, key)]).strip()
-                                        if col(clus_b, key) is not None and not _blank(raw.iat[rr, col(clus_b, key)]) else default)
-            clusters.append((code, get('cl_name', code), get('header', code)))
-            if col(clus_b, 'weight') is not None:
-                cl_scores[code] = to_number(raw.iat[rr, col(clus_b, 'weight')])
-
-        alts = [_alt_header(raw.iat[r, j]) for j in expert_b[1:] if keys[j] is None]
-        alt_cols = [j for j in expert_b[1:] if keys[j] is None]
-        rows = {}
-        for rr in range(r + 1, raw.shape[0]):
-            code = _lead_code(raw.iat[rr, expert_b[0]])
-            if code is not None and code not in rows:
-                rows[code] = [to_number(raw.iat[rr, j]) for j in alt_cols]
-        missing = [c[0] for c in criteria if c[0] not in rows]
-        if missing:
-            raise ModelError("Uzman değerlendirmesinde satırı olmayan kriterler: " + ', '.join(missing))
-        matrix = [rows[c[0]] for c in criteria]
-
-        params = {}
-        for rr in range(raw.shape[0]):
-            for j in range(raw.shape[1] - 1):
-                key = norm(raw.iat[rr, j])
-                if key in ('olcekalt', 'ölçekalt', 'scalemin'):
-                    params['scale_min'] = to_number(raw.iat[rr, j + 1])
-                elif key in ('olcekust', 'ölçeküst', 'scalemax'):
-                    params['scale_max'] = to_number(raw.iat[rr, j + 1])
-                elif key in ('bulaniklik', 'bulanıklık', 'spread'):
-                    params['spread'] = to_number(raw.iat[rr, j + 1])
-        params = {k: v for k, v in params.items() if not np.isnan(v)}
-        return {'spec': dict(clusters=clusters, criteria=criteria, alternatives=alts, alt_matrix=matrix, **params),
-                'ratings': ratings, 'clusters': cl_scores}
-    return None
-
-
-def parse_dependence_sheet(raw, cl_codes):
-    for r in range(raw.shape[0]):
-        cols = {norm_id(v): j for j, v in enumerate(raw.iloc[r]) if norm_id(v) in cl_codes}
-        if len(cols) == len(cl_codes):
-            M = np.full((len(cl_codes),) * 2, np.nan)
+        values, unknown = {}, []
+        for block, cols, val_c in (('kriter', (code_c, head_c), score_c), ('küme', (cl_c, clhead_c), weight_c)):
+            started = False
             for rr in range(r + 1, raw.shape[0]):
-                lab = next((norm_id(v) for v in raw.iloc[rr] if norm_id(v) in cl_codes), None)
-                if lab:
-                    for c2, j in cols.items():
-                        M[cl_codes.index(lab), cl_codes.index(c2)] = to_number(raw.iat[rr, j])
-            return M
+                if _blank(raw.iat[rr, cols[0]]):
+                    if started:
+                        break
+                    continue
+                started = True
+                code = resolve(rr, cols)
+                if code is None:
+                    unknown.append(str(raw.iat[rr, cols[0]]).strip())
+                    continue
+                if (block == 'kriter') != (code in model.codes):
+                    unknown.append(str(raw.iat[rr, cols[0]]).strip())
+                    continue
+                values.setdefault(code, to_number(raw.iat[rr, val_c]))
+        if unknown:
+            _rapor(rep, 'Format', None, "Modelde karşılığı olmayan satırlar okunmadı: " + ', '.join(unknown))
+        info = {}
+        for rr in range(raw.shape[0]):
+            if rr == r:
+                continue
+            for j in range(raw.shape[1] - 1):
+                key = _INFO_KEYS.get(norm(raw.iat[rr, j]))
+                if key and key not in info and not _blank(raw.iat[rr, j + 1]):
+                    info[key] = raw.iat[rr, j + 1]
+        fid = norm_id(info.get('id')) or '1'
+        survey = pd.DataFrame([{k: values.get(k, np.nan) for k in model.needed}], index=pd.Index([fid], name='ID'))
+        demo = pd.DataFrame([{'Scale': info.get('scale'), 'Sector': info.get('sector'), 'Motivation': info.get('motivation')}],
+                            index=pd.Index([fid], name='ID'))
+        return survey, demo
     return None
-
-
-def read_model_with_scores(content):
-    """Model sayfası varsa (model, tek firma puanları ya da None) döndürür, yoksa (None, None)."""
-    xls = pd.ExcelFile(io.BytesIO(content))
-    sheets = {sh: pd.read_excel(xls, sheet_name=sh, header=None) for sh in xls.sheet_names}
-    parsed = None
-    for sh, raw in sheets.items():
-        if raw.empty:
-            continue
-        parsed = parse_model_sheet(raw)
-        if parsed is not None:
-            parsed['spec']['source'] = f"'{sh}' sayfasındaki model"
-            break
-    if parsed is None:
-        return None, None
-    model = Model(**parsed['spec'])
-    for sh, raw in sheets.items():
-        if any(k in norm(sh) for k in ('bagiml', 'bağiml', 'dependence')):
-            dep = parse_dependence_sheet(raw, model.cl_codes)
-            if dep is not None:
-                model = model.with_dependence(dep)
-    vals = {**parsed['ratings'], **parsed['clusters']}
-    scores = None
-    if any(not np.isnan(v) for v in vals.values()):
-        scores = pd.DataFrame([{k: vals.get(k, np.nan) for k in model.needed}], index=pd.Index(['1'], name='ID'))
-    return model, scores
-
-
-def read_model(content, base=None):
-    """Excel'de model sayfası (ve isteğe bağlı BAĞIMLILIK sayfası) varsa modeli kurar, yoksa None."""
-    return read_model_with_scores(content)[0]
 
 
 def parse_survey_sheet(model, raw, rep):
@@ -760,7 +666,9 @@ def parse_survey_sheet(model, raw, rep):
         rows = {}
         for i, (_, row) in enumerate(raw.iloc[best + 1:].iterrows()):
             vals = {k: to_number(row.iloc[j]) for k, j in b['cols'].items()}
-            fid = norm_id(row.iloc[idc]) if idc is not None else (str(i + 1) if any(not np.isnan(x) for x in vals.values()) else None)
+            if all(np.isnan(x) for x in vals.values()):
+                continue                                  # doldurulmamış şablon satırı
+            fid = norm_id(row.iloc[idc]) if idc is not None else str(i + 1)
             if fid is None:
                 continue
             if fid in rows:
@@ -768,8 +676,8 @@ def parse_survey_sheet(model, raw, rep):
                 continue
             rows[fid] = vals
         parts.append(pd.DataFrame.from_dict(rows, orient='index', columns=list(b['cols'])))
-    if not parts:
-        return None
+    if not parts or not any(len(p) for p in parts):
+        return None                                   # başlıklar var ama veri satırı yok (açıklama sayfası gibi)
     all_ids = set().union(*[set(p.index) for p in parts])
     for fid in sorted(all_ids, key=id_key):
         miss = sum(1 for p in parts if fid not in p.index)
@@ -806,41 +714,49 @@ def parse_demo_sheet(raw):
     return None
 
 
-def read_workbook(content, model=None):
-    """content: Excel baytları. model verilmezse dosyadaki model sayfası, o da yoksa varsayılan model.
-    Döndürür: (model, anket, demografi, rapor, bilgi)."""
+def read_workbook(content, model=None, kind=None):
+    """content: Excel baytları. kind: 'tek' (tek firma şablonu), 'coklu' (çoklu firma şablonu) ya da None (ikisi de denenir).
+    Döndürür: (model, anket, demografi, rapor, bilgi). Model, motorda tanımlı modeldir."""
     rep, info = [], {}
+    model = model or default_model()
     try:
         xls = pd.ExcelFile(io.BytesIO(content))
     except Exception:
-        raise ValueError("Dosya Excel olarak açılamadı. .xlsx biçiminde bir anket dosyası yükleyin.")
-    file_model, file_scores = read_model_with_scores(content)
-    if model is None:
-        model = file_model or default_model()
-    info['model'] = model.source
+        raise ValueError("Dosya Excel olarak açılamadı. .xlsx biçiminde bir dosya yükleyin.")
+    sheets = [(sh, pd.read_excel(xls, sheet_name=sh, header=None)) for sh in xls.sheet_names]
     survey = demo = None
-    for sh in xls.sheet_names:
-        raw = pd.read_excel(xls, sheet_name=sh, header=None)
-        if raw.empty or parse_model_sheet(raw) is not None:
-            continue
-        if survey is None:
-            s = parse_survey_sheet(model, raw, rep)
-            if s is not None:
-                survey, info['puan_sayfasi'] = s, sh
+    if kind in (None, 'coklu'):
+        for sh, raw in sheets:
+            if raw.empty:
                 continue
-        if demo is None:
-            d = parse_demo_sheet(raw)
-            if d is not None:
-                demo, info['demografi_sayfasi'] = d, sh
-    if survey is None and file_scores is not None and file_model is not None and file_model.needed == model.needed:
-        survey, info['puan_sayfasi'] = file_scores, 'model sayfasındaki puanlar (tek firma)'
+            if survey is None:
+                s_ = parse_survey_sheet(model, raw, rep)
+                if s_ is not None:
+                    survey, info['puan_sayfasi'] = s_, sh
+                    continue
+            if demo is None:
+                d = parse_demo_sheet(raw)
+                if d is not None:
+                    demo, info['demografi_sayfasi'] = d, sh
+    if survey is None and kind in (None, 'tek'):
+        for sh, raw in sheets:
+            if raw.empty:
+                continue
+            single = parse_single_firm_sheet(model, raw, rep)
+            if single is not None:
+                survey, demo = single
+                info['puan_sayfasi'] = info['demografi_sayfasi'] = f"{sh} (tek firma)"
+                break
     if survey is None:
+        if kind == 'tek':
+            raise ValueError("Tek firma sayfası bulunamadı. Tek firma şablonunu indirip onun düzenini kullanın.")
         ornek = ', '.join(list(model.header_of.values())[:3])
-        raise ValueError(f"Puan sayfası bulunamadı. Başlık satırında modeldeki başlıklar (örneğin {ornek}) olmalı.")
+        raise ValueError(f"Puan sayfası bulunamadı. Başlık satırında anket başlıkları (örneğin {ornek}) ve bir ID sütunu olmalı. "
+                         "Çoklu firma şablonunu indirip onun düzenini kullanabilirsiniz.")
     if demo is None:
-        _rapor(rep, 'Format', None, "Demografi sayfası (ID ile ölçek, sektör ya da motivasyon sütunu) bulunamadı.")
+        _rapor(rep, 'Format', None, "Firma bilgileri sayfası (ID ile ölçek, sektör ya da motivasyon sütunu) bulunamadı.")
         demo = pd.DataFrame(columns=['Scale', 'Sector', 'Motivation'])
-    vals = survey.values[~np.isnan(survey.values)]
+    vals = survey.values[~np.isnan(survey.values.astype(float))]
     if len(vals) and vals.max() <= model.scale_max / 2 + 0.5 and model.scale_max >= 7:
         _rapor(rep, 'Uyarı', None, f"Puanların hepsi {vals.max():g} ve altında; anket 1 ile {vals.max():g} ölçeğinde olabilir. Ölçek ayarını kontrol edin.")
     return model, survey, demo, rep, info
@@ -931,74 +847,149 @@ def analyze(model, survey, demo, rep=None, sentez=None, simulations=SIMULASYON_S
 # =============================================================================
 # ÇIKTI TABLOLARI
 # =============================================================================
-def model_table(model):
-    """Uzman değerlendirmesi dahil model tablosu (arayüzde gösterim için)."""
-    return pd.DataFrame({
-        'Kriter kodu': model.codes,
-        'Kriter adı': [c[2] for c in model.criteria],
-        'Anket başlığı': [c[1] for c in model.criteria],
-        'Küme': [model.clusters[k][1] for k in model.cl_of],
-        **{model.labels[a]: model.alt_matrix[:, j] for j, a in enumerate(model.alt_codes)}})
-
-
-def _write_model_sheet(xw, model, ratings=None, cluster_scores=None, sheet='MAIN_DATA'):
-    """Model sayfası: kriterler ve puanları | ana başlıklar ve ağırlık puanları | uzman değerlendirmesi."""
+def _style_header(cells):
     from openpyxl.styles import Alignment, Font, PatternFill
-    wb = xw.book
-    ws = wb.create_sheet(sheet)
-    xw.sheets[sheet] = ws
-    num = lambda x: int(x) if float(x).is_integer() else float(x)
-    lo, hi = f"{model.scale_min:g}", f"{model.scale_max:g}"
+    for c in cells:
+        c.font = Font(bold=True)
+        c.fill = PatternFill('solid', fgColor='DDE7DF')
+        c.alignment = Alignment(wrap_text=True, vertical='center')
 
+
+def _score_validation(ws, model, ref):
+    from openpyxl.worksheet.datavalidation import DataValidation
+    dv = DataValidation(type='decimal', operator='between', formula1=f"{model.scale_min:g}", formula2=f"{model.scale_max:g}",
+                        allow_blank=True, showErrorMessage=True, errorTitle='Geçersiz puan',
+                        error=f"Puan {model.scale_min:g} ile {model.scale_max:g} arasında olmalı.")
+    ws.add_data_validation(dv)
+    dv.add(ref)
+
+
+def _scale_validation(ws, ref):
+    from openpyxl.worksheet.datavalidation import DataValidation
+    dv = DataValidation(type='list', formula1='"Mikro,Küçük,Orta,Büyük"', allow_blank=True)
+    ws.add_data_validation(dv)
+    dv.add(ref)
+
+
+def single_firm_template_excel(model):
+    """Tek firma şablonu: kriterler ve ihtiyaç puanları | ana başlıklar ve ağırlık puanları | firma bilgileri.
+    Strateji (A) sütunu içermez; stratejiler uygulamada sonuç olarak hesaplanır."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Firma'
+    lo, hi = f"{model.scale_min:g}", f"{model.scale_max:g}"
     crit_h = ['Kriter Kodu', 'Kriter Adı', 'Anket Başlığı', 'Küme Kodu', f'Puan ({lo}-{hi})']
     clus_h = ['Küme Kodu', 'Küme Adı', 'Anket Başlığı', f'Ağırlık Puanı ({lo}-{hi})']
-    exp_h = ['Kriter Kodu'] + [model.labels[a] for a in model.alt_codes]
-    c1, c2, c3 = 1, len(crit_h) + 2, len(crit_h) + len(clus_h) + 3
-    titles = [(c1, 'KRİTERLER VE İHTİYAÇ PUANLARI'), (c2, 'ANA BAŞLIKLAR VE AĞIRLIK PUANLARI'),
-              (c3, f'UZMAN DEĞERLENDİRMESİ: stratejinin kriterdeki ihtiyacı karşılama puanı ({lo}-{hi})')]
-    bold, head_fill = Font(bold=True), PatternFill('solid', fgColor='DDE7DF')
-    for c, t in titles:
-        ws.cell(row=1, column=c, value=t).font = bold
-    for start, hs in ((c1, crit_h), (c2, clus_h), (c3, exp_h)):
-        for k, h in enumerate(hs):
-            cell = ws.cell(row=2, column=start + k, value=h)
-            cell.font, cell.fill = bold, head_fill
-            cell.alignment = Alignment(wrap_text=True, vertical='center')
+    c2 = len(crit_h) + 2
+    ws.cell(row=1, column=1, value='KRİTERLER VE İHTİYAÇ PUANLARI').font = Font(bold=True)
+    ws.cell(row=1, column=c2, value='ANA BAŞLIKLAR VE AĞIRLIK PUANLARI').font = Font(bold=True)
+    for k, h in enumerate(crit_h):
+        ws.cell(row=2, column=1 + k, value=h)
+    for k, h in enumerate(clus_h):
+        ws.cell(row=2, column=c2 + k, value=h)
+    _style_header([ws.cell(row=2, column=c) for c in list(range(1, len(crit_h) + 1)) + list(range(c2, c2 + len(clus_h)))])
     for i, (code, header, name, clc) in enumerate(model.criteria):
-        r = 3 + i
         for k, v in enumerate([code, name, header, clc]):
-            ws.cell(row=r, column=c1 + k, value=v)
-        if ratings is not None and not np.isnan(ratings[i]):
-            ws.cell(row=r, column=c1 + 4, value=num(ratings[i]))
-        ws.cell(row=r, column=c3, value=code)
-        for j in range(len(model.alt_codes)):
-            ws.cell(row=r, column=c3 + 1 + j, value=num(model.alt_matrix[i, j]))
+            ws.cell(row=3 + i, column=1 + k, value=v)
     for k, (code, name, header) in enumerate(model.clusters):
-        r = 3 + k
         for q, v in enumerate([code, name, header]):
-            ws.cell(row=r, column=c2 + q, value=v)
-        if cluster_scores is not None and not np.isnan(cluster_scores[k]):
-            ws.cell(row=r, column=c2 + 3, value=num(cluster_scores[k]))
-    pr = 3 + len(model.clusters) + 2
-    ws.cell(row=pr, column=c2, value='AYARLAR').font = bold
-    for q, (lab, val) in enumerate((('Ölçek alt', model.scale_min), ('Ölçek üst', model.scale_max), ('Bulanıklık', model.spread))):
-        ws.cell(row=pr + 1 + q, column=c2, value=lab)
-        ws.cell(row=pr + 1 + q, column=c2 + 1, value=num(val))
-    widths = {c1: 11, c1 + 1: 30, c1 + 2: 16, c1 + 3: 10, c1 + 4: 11, c2: 11, c2 + 1: 20, c2 + 2: 14, c2 + 3: 13, c3: 11}
-    for c, w in widths.items():
-        ws.column_dimensions[ws.cell(row=2, column=c).column_letter].width = w
-    for j in range(len(model.alt_codes)):
-        ws.column_dimensions[ws.cell(row=2, column=c3 + 1 + j).column_letter].width = 18
+            ws.cell(row=3 + k, column=c2 + q, value=v)
+    score_col = ws.cell(row=2, column=5).column_letter
+    weight_col = ws.cell(row=2, column=c2 + 3).column_letter
+    _score_validation(ws, model, f"{score_col}3:{score_col}{2 + len(model.criteria)}")
+    _score_validation(ws, model, f"{weight_col}3:{weight_col}{2 + len(model.clusters)}")
+
+    fr = 3 + len(model.clusters) + 2
+    ws.cell(row=fr, column=c2, value='FİRMA BİLGİLERİ').font = Font(bold=True)
+    for q, lab in enumerate(['Firma adı', 'Ölçek', 'Sektör', 'Motivasyon']):
+        ws.cell(row=fr + 1 + q, column=c2, value=lab)
+    val_col = ws.cell(row=1, column=c2 + 1).column_letter
+    _scale_validation(ws, f"{val_col}{fr + 2}")
+    nr = fr + 6
+    ws.cell(row=nr, column=c2, value='AÇIKLAMA').font = Font(bold=True)
+    ws.cell(row=nr + 1, column=c2, value=f"Puanlar ihtiyaç düzeyidir: {lo} yeterli yetkinlik ve asgari ihtiyaç, {hi} kritik eksiklik.")
+    ws.cell(row=nr + 2, column=c2, value="Ağırlık puanı, ana başlığın firma için diğer başlıklara göre önemidir.")
+    ws.cell(row=nr + 3, column=c2, value="Sadece Puan, Ağırlık Puanı ve firma bilgileri doldurulur; kod ve başlık sütunları değiştirilmemelidir.")
+    for col, w in {'A': 11, 'B': 32, 'C': 16, 'D': 10, 'E': 11}.items():
+        ws.column_dimensions[col].width = w
+    for k, w in enumerate([12, 22, 14, 13]):
+        ws.column_dimensions[ws.cell(row=1, column=c2 + k).column_letter].width = w
     ws.row_dimensions[2].height = 32
     ws.freeze_panes = 'A3'
-    if model.dependence is not None:
-        pd.DataFrame(model.dependence, index=model.cl_codes, columns=model.cl_codes).to_excel(xw, sheet_name='BAĞIMLILIK')
-
-
-def model_template_excel(model, ratings=None, cluster_scores=None):
     buf = io.BytesIO()
-    with pd.ExcelWriter(buf, engine='openpyxl') as xw:
-        _write_model_sheet(xw, model, ratings, cluster_scores)
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def multi_firm_template_excel(model, n_rows=30):
+    """Çoklu firma şablonu: 'Firmalar' (ID, ölçek, sektör, motivasyon) ve 'Puanlar' (her ana başlığın kriterleri
+    ayrı blokta, en sonda ana başlık ağırlıkları; tek ID sütunu). Strateji (A) sütunu içermez."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+    wb = Workbook()
+    info = wb.active
+    info.title = 'Açıklama'
+    lo, hi = f"{model.scale_min:g}", f"{model.scale_max:g}"
+    lines = ["ÇOKLU FİRMA ŞABLONU",
+             "1. 'Firmalar' sayfasında her firma için ölçek, sektör ve motivasyon girin.",
+             "2. 'Puanlar' sayfasında aynı ID satırına kriter ihtiyaç puanlarını ve ana başlık ağırlık puanlarını girin.",
+             f"3. Puanlar {lo} ile {hi} arasındadır: {lo} yeterli yetkinlik ve asgari ihtiyaç, {hi} kritik eksiklik.",
+             "4. Boş bırakılan satırlar okunmaz; eksik puanı olan firma analize alınmaz ve veri raporunda gösterilir.",
+             "5. Başlık satırları değiştirilmemelidir. Firma sayısı için satır ekleyebilirsiniz.", "",
+             "KRİTERLER"]
+    for i, t in enumerate(lines):
+        info.cell(row=1 + i, column=1, value=t).font = Font(bold=(i in (0, len(lines) - 1)))
+    r0 = len(lines) + 1
+    for k, h in enumerate(['Küme', 'Kriter Kodu', 'Kriter Adı', 'Anket Başlığı']):
+        info.cell(row=r0, column=1 + k, value=h)
+    _style_header([info.cell(row=r0, column=c) for c in range(1, 5)])
+    for i, (code, header, name, clc) in enumerate(model.criteria):
+        for k, v in enumerate([model.clusters[model.cl_codes.index(clc)][1], code, name, header]):
+            info.cell(row=r0 + 1 + i, column=1 + k, value=v)
+    for col, w in {'A': 20, 'B': 12, 'C': 34, 'D': 18}.items():
+        info.column_dimensions[col].width = w
+
+    firms = wb.create_sheet('Firmalar')
+    for k, h in enumerate(['Firma ID', 'Ölçek', 'Sektör', 'Motivasyon']):
+        firms.cell(row=1, column=1 + k, value=h)
+    _style_header([firms.cell(row=1, column=c) for c in range(1, 5)])
+    for i in range(n_rows):
+        firms.cell(row=2 + i, column=1, value=i + 1)
+    _scale_validation(firms, f"B2:B{1 + n_rows}")
+    for col, w in {'A': 10, 'B': 12, 'C': 18, 'D': 28}.items():
+        firms.column_dimensions[col].width = w
+
+    sc = wb.create_sheet('Puanlar')
+    sc.cell(row=2, column=1, value='ID')
+    col = 2
+    blocks = [(f"{name.upper()} ({code})", [model.criteria[i][1] for i in model.members[k]])
+              for k, (code, name, _) in enumerate(model.clusters)]
+    blocks.append(('ANA BAŞLIK AĞIRLIKLARI', [c[2] for c in model.clusters]))
+    score_ranges, header_cells = [], [sc.cell(row=2, column=1)]
+    for title, headers in blocks:
+        sc.cell(row=1, column=col, value=title).font = Font(bold=True)
+        if len(headers) > 1:
+            sc.merge_cells(start_row=1, start_column=col, end_row=1, end_column=col + len(headers) - 1)
+        for k, h in enumerate(headers):
+            header_cells.append(sc.cell(row=2, column=col + k, value=h))
+            sc.column_dimensions[sc.cell(row=2, column=col + k).column_letter].width = 13
+        first = sc.cell(row=3, column=col).column_letter
+        last = sc.cell(row=3, column=col + len(headers) - 1).column_letter
+        score_ranges.append(f"{first}3:{last}{2 + n_rows}")
+        sc.column_dimensions[sc.cell(row=2, column=col + len(headers)).column_letter].width = 3
+        col += len(headers) + 1
+    _style_header(header_cells)
+    for ref in score_ranges:
+        _score_validation(sc, model, ref)
+    for i in range(n_rows):
+        sc.cell(row=3 + i, column=1, value=i + 1)
+    sc.column_dimensions['A'].width = 6
+    sc.row_dimensions[2].height = 32
+    sc.freeze_panes = 'B3'
+    buf = io.BytesIO()
+    wb.save(buf)
     return buf.getvalue()
 
 
@@ -1028,5 +1019,4 @@ def results_excel(result):
         scale_matrix(model).to_excel(xw, sheet_name='Strateji ve Ölçek Matrisi', index=False)
         (result['report'] if len(result['report']) else pd.DataFrame([{'Tür': '', 'Yer': '', 'Açıklama': 'Sorun bulunmadı'}])) \
             .to_excel(xw, sheet_name='Veri Raporu', index=False)
-        _write_model_sheet(xw, model)
     return buf.getvalue()
