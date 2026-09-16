@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 """
 Yeşil Dönüşüm RAG (Retrieval-Augmented Generation) Motoru
-PDF belgelerini okur, anlamsal parçalara böler ve FAISS vektör veritabanına kaydeder.
+Cross-Encoder Reranker entegrasyonu ile hassaslaştırılmış semantik arama modülü.
 """
 
 import os
 import faiss
 import numpy as np
 from PyPDF2 import PdfReader
-from sentence_transformers import SentenceTransformer
+from sentence_transformers import SentenceTransformer, CrossEncoder
 
 class GreenRAG:
     def __init__(self, folder_path="bilgi_havuzu", chunk_size=800, overlap=100):
@@ -16,11 +16,17 @@ class GreenRAG:
         self.chunk_size = chunk_size
         self.overlap = overlap
         self.chunks = []
-        self.chunk_sources = [] # Hangi bilginin hangi PDF'ten geldiğini tutmak için
+        self.chunk_sources = []
         
-        # Türkçe'yi çok iyi anlayan, hızlı ve hafif çok dilli bir model kullanıyoruz
-        print("🤖 Dil modeli yükleniyor... (İlk çalışmada 400MB kadar indirebilir, sonrasında anında açılır)")
+        # 1. Aşama Modeli: Metinleri hızlıca vektörlere (koordinatlara) çeviren model
+        print("🤖 Vektör (Embedding) modeli yükleniyor...")
         self.model = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+        
+        # 2. Aşama Modeli: Bulunan sonuçların mantıksal doğrulamasını yapan Reranker (Yeniden Sıralayıcı)
+        print("🧠 Reranker (Mantıksal Süzgeç) modeli yükleniyor...")
+        # Çok dilli (Türkçe dahil) hassas yeniden sıralama modeli
+        self.reranker = CrossEncoder('cross-encoder/mmarco-mMiniLMv2-L12-H384-v1')
+        
         self.index = None
 
     def read_and_chunk_pdfs(self):
@@ -48,11 +54,10 @@ class GreenRAG:
                     if extracted:
                         text += extracted + "\n"
                 
-                # Metni üst üste binen (overlap) parçalara bölme işlemi
                 words = text.split()
                 for i in range(0, len(words), self.chunk_size - self.overlap):
                     chunk_text = " ".join(words[i:i + self.chunk_size])
-                    if len(chunk_text.strip()) > 50: # Çok kısa işe yaramaz parçaları atla
+                    if len(chunk_text.strip()) > 50:
                         self.chunks.append(chunk_text)
                         self.chunk_sources.append(file)
             except Exception as e:
@@ -64,59 +69,71 @@ class GreenRAG:
     def build_vector_db(self):
         """Oluşturulan metin parçalarını vektörlere çevirip FAISS indeksine kaydeder."""
         if not self.chunks:
-            print("⚠️ Vektörleştirilecek metin bulunamadı. Önce PDF'leri okutmalısınız.")
+            print("⚠️ Vektörleştirilecek metin bulunamadı.")
             return
 
-        print("🧠 Metinler yapay zeka tarafından matematiksel vektörlere çevriliyor... Lütfen bekleyin.")
-        # Metinleri embedding (koordinat) formatına çevir
+        print("🧠 Metinler yapay zeka tarafından matematiksel vektörlere çevriliyor...")
         embeddings = self.model.encode(self.chunks, convert_to_numpy=True)
         
-        # FAISS vektör veritabanını oluştur (L2 Mesafe / Öklid uzaklığı kullanır)
         dimension = embeddings.shape[1]
         self.index = faiss.IndexFlatL2(dimension)
         self.index.add(embeddings)
         print(f"✅ Vektör veritabanı hazır! FAISS indeksine {self.index.ntotal} kayıt eklendi.")
 
-    def search(self, query, top_k=3):
-        """Kullanıcının sorusuna semantik olarak en yakın paragrafları bulur."""
+    def search(self, query, top_k=2, fetch_k=10):
+        """
+        İki aşamalı hibrit arama:
+        1. FAISS ile en yakın 'fetch_k' (10) adayı bul.
+        2. Cross-Encoder ile bu adayları okuyup mantık puanı ver, en iyi 'top_k' (2) adayı döndür.
+        """
         if not self.index:
-            return "Veritabanı henüz oluşturulmadı."
+            return []
             
-        # Kullanıcının sorusunu da aynı uzayda vektöre çevir
+        # --- AŞAMA 1: FAISS Kaba Arama ---
         query_vector = self.model.encode([query], convert_to_numpy=True)
+        distances, indices = self.index.search(query_vector, fetch_k)
         
-        # En yakın (en benzer) K adet sonucu FAISS içinde ara
-        distances, indices = self.index.search(query_vector, top_k)
-        
-        results = []
-        for i in range(top_k):
+        initial_results = []
+        for i in range(fetch_k):
             idx = indices[0][i]
             if idx != -1 and idx < len(self.chunks):
-                results.append({
+                initial_results.append({
                     "source": self.chunk_sources[idx],
                     "text": self.chunks[idx],
-                    "distance": distances[0][i] # Mesafe ne kadar küçükse o kadar benzer
+                    "faiss_distance": distances[0][i]
                 })
-        return results
+                
+        if not initial_results:
+            return []
 
-# Bu dosya tek başına çalıştırıldığında test amaçlı aşağıdaki blok devreye girer
+        # --- AŞAMA 2: Cross-Encoder Hassas Yeniden Sıralama ---
+        # Soru ile her bir paragrafı çift (pair) haline getirip Reranker'a veriyoruz
+        pairs = [[query, res["text"]] for res in initial_results]
+        cross_scores = self.reranker.predict(pairs)
+        
+        # Yapay zekanın verdiği mantık puanlarını (skorları) sonuçlara ekle
+        for i, score in enumerate(cross_scores):
+            initial_results[i]["cross_score"] = float(score)
+            
+        # Puanlara göre büyükten küçüğe sırala (En alakalı olan en üste çıkar)
+        initial_results.sort(key=lambda x: x["cross_score"], reverse=True)
+        
+        # Sadece en iyi top_k (örn: 2) sonucu döndür
+        return initial_results[:top_k]
+
+# Test Bloğu
 if __name__ == "__main__":
-    print("--- RAG SİSTEMİ TEST BAŞLATILIYOR ---")
+    print("--- RAG RERANKER TEST BAŞLATILIYOR ---")
     rag = GreenRAG()
     
-    # 1. Klasördeki PDF'leri oku
-    is_loaded = rag.read_and_chunk_pdfs()
-    
-    if is_loaded:
-        # 2. FAISS Vektör DB oluştur
+    if rag.read_and_chunk_pdfs():
         rag.build_vector_db()
         
-        # 3. Test araması yap
         test_sorusu = "Karbon vergisi veya SKDM uyumu için ne yapmalıyım?"
         print(f"\n🔎 TEST SORUSU: '{test_sorusu}'")
         sonuclar = rag.search(test_sorusu, top_k=2)
         
-        print("\n🎯 EN İYİ EŞLEŞEN SONUÇLAR:")
+        print("\n🎯 EN İYİ EŞLEŞEN SONUÇLAR (RERANKED):")
         for no, sonuc in enumerate(sonuclar, 1):
-            print(f"\n--- Sonuç {no} (Kaynak: {sonuc['source']}) ---")
-            print(sonuc['text'][:400] + "...") # Çok uzun olmasın diye ilk 400 karakteri yazdır
+            print(f"\n--- Sonuç {no} (Kaynak: {sonuc['source']} | Alaka Puanı: {sonuc['cross_score']:.2f}) ---")
+            print(sonuc['text'][:400] + "...")
