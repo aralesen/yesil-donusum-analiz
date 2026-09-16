@@ -1,456 +1,1161 @@
 # -*- coding: utf-8 -*-
 """
-Yeşil Dönüşüm Karar Destek Sistemi (Bulanık ANP)
-Çalıştırma:  streamlit run app.py
+Bulanık ANP (FANP) hesap motoru.
 
-Arayüz modele göre kendini kurar: küme, kriter ve strateji sayısı ya da puan ölçeği
-değiştiğinde kodda değişiklik gerekmez.
+Algoritma veriden bağımsızdır: küme, kriter ve strateji sayısı, uzman matrisi, puan ölçeği ve
+bulanıklık genişliği bir Model nesnesinden okunur. Model (kümeler, kriterler, stratejiler ve uzman değerlendirmesi) bu dosyada tanımlıdır; kullanıcılar
+yalnızca kriter ihtiyaç puanlarını ve ana başlık ağırlık puanlarını girer. Stratejiler sonuçtur.
+Modül genel durum tutmaz; her çağrı kendi veri raporunu döndürür.
 """
 
-from pathlib import Path
+import io
+import re
 
-import altair as alt
 import numpy as np
 import pandas as pd
-import streamlit as st
 
-import fanp_motor as m
+SENTEZ = "bulanik"               # "bulanik" (tezdeki yöntem) veya "durulastirilmis" (karşılaştırma)
+BAGIMLILIK_AGIRLIGI = 0.5         # iç bağımlılık varsa kriter sütunlarında ona ayrılan pay
+SIMULASYON_SAYISI = 1000
+RASTGELE_TOHUM = 42
 
-st.set_page_config(page_title="Yeşil Dönüşüm Analiz Aracı", page_icon="🌱", layout="wide", initial_sidebar_state="expanded")
+# =============================================================================
+# VARSAYILAN MODEL VE METİNLER
+# =============================================================================
+DEFAULT_CLUSTERS = [
+    ('C1', 'Ekonomik', 'Main_C1'),
+    ('C2', 'Çevresel', 'Main_C2'),
+    ('C3', 'Sosyal', 'Main_C3'),
+    ('C4', 'Teknik', 'Main_C4'),
+    ('C5', 'Yasal ve politika', 'Main_C5'),
+]
+DEFAULT_ALTERNATIVES = [
+    ('A1', 'Yeşil Üretim Teknolojileri'),
+    ('A2', 'Yeşil Tedarik ve Döngüsel Ekonomi'),
+    ('A3', 'Yenilenebilir Enerji ve Yetkinlik'),
+    ('A4', 'Yasal Uyum ve Yönetişim'),
+]
+STRATEGY_DESCRIPTIONS = {
+    'A1': ('🤖', 'Yapay zeka, dijital ikizler ve düşük karbonlu makineler.'),
+    'A2': ('♻️', 'Geri dönüşüm, atık yönetimi ve çevreci lojistik.'),
+    'A3': ('⚡', 'Güneş ve rüzgar enerjisi, ISO 50001 ve yeşil insan kaynakları eğitimleri.'),
+    'A4': ('⚖️', 'SKDM (karbon vergisi), emisyon izinleri ve mevzuat uyumu.'),
+}
+# (kod, anket başlığı, Türkçe ad, [A1, A2, A3, A4] uzman puanı 1..9)
+# Uzman değerlendirmesi: stratejinin, kriterdeki ihtiyacı karşılama puanı (1 ile 9). Sağdaki not, uzman tablosundaki satır etiketidir.
+DEFAULT_CRITERIA = [
+    ('C1.1', 'Inv. Cost',       'Yatırım maliyeti',               [2, 6, 6, 8]),  # Yatırım Mal.
+    ('C1.2', 'Oper. Savings',   'Operasyonel tasarruf',           [7, 9, 4, 5]),  # İşletme Mal.
+    ('C1.3', 'ROI',             'Yatırımın geri dönüşü',          [6, 8, 4, 5]),  # ROI
+    ('C1.4', 'Access Finance',  'Finansmana erişim ve teşvik',    [7, 6, 5, 9]),  # Teşvikler
+    ('C1.5', 'Market Demand',   'Pazar talebi ve rekabet',        [9, 8, 6, 5]),  # Rekabet
+    ('C2.1', 'Energy',          'Enerji verimliliği',             [8, 8, 3, 5]),  # Enerji
+    ('C2.2', 'GHG',             'Sera gazı ve karbon azaltımı',   [7, 9, 3, 5]),  # Karbon
+    ('C2.3', 'Waste',           'Atık azaltma',                   [6, 9, 4, 5]),  # Atık
+    ('C2.4', 'Water',           'Su ve kaynak tüketimi',          [6, 9, 3, 5]),  # Kaynak Tük.
+    ('C2.5', 'Hazardous',       'Tehlikeli madde ve kirlilik',    [8, 8, 4, 7]),  # Kirlilik
+    ('C3.1', 'H&S',             'Çalışan sağlığı ve güvenliği',   [8, 6, 9, 8]),  # İSG
+    ('C3.2', 'Training',        'Eğitim ve bilinçlendirme',       [4, 5, 9, 6]),  # Eğitim
+    ('C3.3', 'Community',       'Toplumsal kabul ve imaj',        [6, 7, 9, 5]),  # İmaj
+    ('C3.4', 'Job Creation',    'İstihdam etkisi',                [3, 6, 9, 5]),  # İstihdam
+    ('C3.5', 'Supplier Comp',   'Tedarikçi uyumu ve şeffaflık',   [5, 6, 9, 8]),  # Şeffaflık
+    ('C4.1', 'TRL',             'Teknolojik olgunluk',            [9, 5, 2, 3]),  # TRL-Teknoloji
+    ('C4.2', 'Compatibility',   'Mevcut sistemle entegrasyon',    [4, 6, 5, 7]),  # Entegrasyon
+    ('C4.3', 'Monitoring',      'İzleme ve otomasyon',            [9, 4, 2, 2]),  # Otomasyon
+    ('C4.4', 'Stability',       'Süreklilik ve ölçeklenebilirlik', [8, 6, 4, 5]), # Ölçeklenebilirlik
+    ('C4.5', 'Maintenance',     'Bakım kolaylığı',                [8, 5, 3, 4]),  # Bakım
+    ('C5.1', 'Reg. Compliance', 'Ulusal mevzuata uyum',           [6, 7, 5, 9]),  # Uyum
+    ('C5.2', 'Legal Compat.',   'Yasal risk ve uyumluluk',        [5, 6, 4, 9]),  # Yasal Risk
+    ('C5.3', 'Audit Risk',      'Denetim ve sertifikasyon',       [6, 7, 5, 9]),  # Sertifikasyon
+    ('C5.4', 'Incentives',      'Teşvik ve vergi politikaları',   [6, 8, 5, 9]),  # Vergi/Politika
+    ('C5.5', 'EU/CBAM',         'AB Yeşil Mutabakatı ve SKDM',    [7, 9, 5, 9]),  # AB Mutabakatı
+]
 
-ORNEK = Path(__file__).parent / "ornek_anket.xlsx"
-YONTEMLER = {"Tezdeki yöntem (bulanık sentez)": "bulanik",
-             "Durulaştırılmış sentez (karşılaştırma)": "durulastirilmis"}
-SCALE_ORDER = ['Mikro', 'Küçük', 'Orta', 'Büyük', 'Bilinmiyor']
+DEFAULT_COLORS = {'A1': '#1E6BD0', 'A2': '#2B8A55', 'A3': '#6F47B8', 'A4': '#DB7614'}
+
+APA_REFERENCES = {
+    '[REF-01]': 'Porter, M. E., & Heppelmann, J. E. (2015). How smart, connected products are transforming companies. Harvard Business Review.',
+    '[REF-02]': 'Bressanelli, G., et al. (2018). The role of digital technologies to overcome Circular Economy challenges. International Journal of Production Research.',
+    '[REF-03]': 'Geissdoerfer, M., et al. (2017). The Circular Economy: A new sustainability paradigm? Journal of Cleaner Production.',
+    '[REF-04]': 'Ellen MacArthur Foundation. (2013). Towards the Circular Economy.',
+    '[REF-05]': 'Renwick, D. W., et al. (2013). Green Human Resource Management: A review. International Journal of Management Reviews.',
+    '[REF-06]': 'Sarkis, J., et al. (2010). Stakeholder pressure and the adoption of environmental practices. Journal of Operations Management.',
+    '[REF-07]': 'European Commission. (2019). The European Green Deal.',
+    '[REF-08]': 'Schaltegger, S., & Burritt, R. (2014). Measuring and managing sustainability performance of supply chains. Supply Chain Management.',
+    '[REF-09]': 'GRI. (2021). GRI Standards: Universal Standards.',
+    '[REF-10]': 'Testa, F., et al. (2014). EMAS and ISO 14001: the differences in effectively improving environmental performance. Journal of Cleaner Production.',
+}
+REFERENCE_LINKS = {
+    '[REF-01]': 'https://hbr.org/2014/11/how-smart-connected-products-are-transforming-competition',
+    '[REF-02]': 'https://doi.org/10.1080/00207543.2018.1427726',
+    '[REF-03]': 'https://doi.org/10.1016/j.jclepro.2016.12.048',
+    '[REF-04]': 'https://ellenmacarthurfoundation.org/towards-the-circular-economy-vol-1-an-economic-and-business-rationale-for-an',
+    '[REF-05]': 'https://doi.org/10.1111/j.1468-2370.2011.00328.x',
+    '[REF-06]': 'https://doi.org/10.1016/j.jom.2009.10.001',
+    '[REF-07]': 'https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=COM%3A2019%3A640%3AFIN',
+    '[REF-08]': 'https://doi.org/10.1108/SCM-02-2014-0061',
+    '[REF-09]': 'https://www.globalreporting.org/standards/',
+    '[REF-10]': 'https://doi.org/10.1016/j.jclepro.2013.12.061',
+}
+
+# =============================================================================
+# GENİŞLETİLMİŞ AKADEMİK VE MEVZUAT BİLGİ HAVUZU
+# =============================================================================
+EXTENDED_REFERENCES = {
+    '[REF-11]': {
+        'citation': 'T.C. Çevre, Şehircilik ve İklim Değişikliği Bakanlığı. (2023). Ulusal Yeşil Mutabakat Eylem Planı ve SKDM Uyum Raporu.',
+        'link': 'https://iklim.gov.tr/'
+    },
+    '[REF-12]': {
+        'citation': 'KOSGEB & Dünya Bankası. (2024). Türkiye Yeşil Sanayi Projesi (Finansman ve Hibe Rehberi).',
+        'link': 'https://www.kosgeb.gov.tr/'
+    },
+    '[REF-13]': {
+        'citation': 'ISO. (2018). ISO 50001:2018 Energy management systems — Requirements with guidance for use.',
+        'link': 'https://www.iso.org/standard/66259.html'
+    },
+    '[REF-14]': {
+        'citation': 'ISO. (2018). ISO 14064-1:2018 Greenhouse gases — Part 1: Specification with guidance at the organization level.',
+        'link': 'https://www.iso.org/standard/66453.html'
+    },
+    '[REF-15]': {
+        'citation': 'Bocken, N. M., et al. (2014). A literature and practice review to develop sustainable business model archetypes. Journal of Cleaner Production.',
+        'link': 'https://doi.org/10.1016/j.jclepro.2013.11.039'
+    }
+}
+
+RECOMMENDATIONS_MAP = {
+    'A1': {'Mikro': ("Bulut tabanlı, düşük maliyetli dijital izleme araçlarına geçiş yapın.", "[REF-01]"),
+           'Küçük': ("Enerji yoğun makinelere IoT sensörleri takarak anlık tüketimi izleyin.", "[REF-01]"),
+           'Orta': ("Üretim planlamasında yapay zeka destekli optimizasyon kullanın.", "[REF-02]"),
+           'Büyük': ("Üretim hattının dijital ikizini oluşturun ve enerji ile verimlilik senaryolarını yapay zeka algoritmalarıyla sanal ortamda simüle ederek optimize edin.", "[REF-02]")},
+    'A2': {'Mikro': ("Atıkları kaynağında ayrıştırıp lisanslı firmalara hammadde olarak satın.", "[REF-03]"),
+           'Küçük': ("Eski ekipmanları, birim üretim başına emisyonu düşük eko tasarım modellerle değiştirin.", "[REF-03]"),
+           'Orta': ("Malzeme Akış Analizi (MFA) yaparak üretimdeki görünmez kayıpları tespit edin.", "[REF-04]"),
+           'Büyük': ("Tedarik zincirinde kapalı döngü sistemler kurarak endüstriyel simbiyoz başlatın.", "[REF-04]")},
+    'A3': {'Mikro': ("Çalışanlara temel çevre bilinci ve enerji tasarrufu eğitimleri verin.", "[REF-05]"),
+           'Küçük': ("Yeşil öneri sistemi kurarak çevre dostu fikir sunan personeli ödüllendirin.", "[REF-05]"),
+           'Orta': ("Tedarikçi seçim prosedürlerine zorunlu çevresel kriterler (yeşil satın alma) ekleyin.", "[REF-08]"),
+           'Büyük': ("Uluslararası standartlarda (GRI) sürdürülebilirlik raporu yayınlayarak şeffaflık sağlayın.", "[REF-09]")},
+    'A4': {'Mikro': ("Belediye ve yerel yönetimlerin atık ve emisyon yönetmeliklerine tam uyum sağlayın.", "[REF-06]"),
+           'Küçük': ("Devletin yeşil dönüşüm hibe ve teşviklerinden yararlanmak için profesyonel danışmanlık alın.", "[REF-06]"),
+           'Orta': ("İhracat pazarlarında rekabet için ISO 14001 Çevre Yönetim Sistemi belgesi alın.", "[REF-10]"),
+           'Büyük': ("AB Yeşil Mutabakatı (SKDM/CBAM) kapsamındaki karbon vergilerine karşı kurumsal karbon ayak izi raporlayın.", "[REF-07]")},
+}
+
+COMMENTARY_TEMPLATES = {
+    'A1': "Sektörün önceliği dijitalleşme ve teknoloji (A1). Porter ve Heppelmann'ın (2015) belirttiği üzere, fiziksel süreçlerin dijital takibi karbon emisyonlarını azaltma fırsatı sunmaktadır.",
+    'A2': "Sektörde döngüsel ekonomi (A2) yaklaşımı baskın. Al, yap, at modeli yerine kaynak verimliliği ön planda. Atıkların hammaddeye dönüşümü (Geissdoerfer ve ark., 2017) maliyet avantajı sağlayacaktır.",
+    'A3': "Sonuçlar insan ve kültür (A3) faktörünü işaret ediyor. Yeşil insan kaynakları yönetimi (Renwick ve ark., 2013) ile çalışanların yetkinliklerinin artırılması, teknoloji yatırımından daha kritiktir.",
+    'A4': "Analiz, yasal uyum ve risk yönetimi (A4) stratejisinin zorunluluk olduğunu gösteriyor. AB Yeşil Mutabakatı ve SKDM düzenlemeleri uyumu ticari bir ehliyet haline getirmiştir (Sarkis ve ark., 2010).",
+}
+
+MOTIVATION_KEYS = [
+    ('imaj', ['imaj', 'marka', 'prestij', 'image', 'brand', 'görünürlük', 'itibar']),
+    ('maliyet', ['maliyet', 'tasarruf', 'kâr', 'kar ', 'cost', 'profit', 'finans']),
+    ('uyum', ['uyum', 'yasa', 'regülasyon', 'mevzuat', 'devlet', 'ceza', 'compliance', 'regulat']),
+    ('inovasyon', ['inovasyon', 'yenilik', 'rekabet', 'innovation', 'competitive']),
+    ('musteri', ['müşteri', 'musteri', 'talep', 'customer', 'demand', 'pazar']),
+]
+MOTIVATION_ADVICE = {
+    'imaj': {'A1': "Hedef imaj ve teknoloji: dijital dönüşümü bir modernizasyon vitrini olarak kullanın.",
+             'A2': "Hedef imaj ve çevre: atık yönetimi projelerinizi sosyal sorumluluk kampanyasına dönüştürün.",
+             'A3': "Hedef imaj ve insan: insana değer veren şirket ödüllerine odaklanın.",
+             'A4': "Hedef imaj ve güven: uluslararası standartlara tam uyumlu, güvenilir bir marka imajı çizin."},
+    'maliyet': {'A1': "Hedef maliyet: otomasyon ile operasyonel hataları azaltarak kalıcı tasarruf sağlayın.",
+                'A2': "Hedef maliyet: hammadde geri kazanımı ile satın alma maliyetlerinizi düşürün.",
+                'A3': "Hedef maliyet: enerji tasarrufu eğitimleri ile görünmez giderleri azaltın.",
+                'A4': "Hedef maliyet: teşvik ve hibelerle uyum yatırımlarının maliyetini düşürün, ceza riskini sıfırlayın."},
+    'uyum': {'A1': "Öncelik yasal uyum: dijital izleme sistemini emisyon raporlamasının veri altyapısı olarak kurun.",
+             'A2': "Öncelik yasal uyum: atık ve geri kazanım kayıtlarını mevzuat raporlamasıyla aynı sistemde tutun.",
+             'A3': "Öncelik yasal uyum: çalışan eğitimlerini çevre mevzuatı ve iş sağlığı güvenliği gereklilikleriyle birleştirin.",
+             'A4': "Tam isabet: yaklaşan karbon vergisi (SKDM) için karbon ayak izinizi şimdiden raporlayın."},
+    'inovasyon': {'A1': "Hedef inovasyon: dijital ikiz ve veri analitiği ile ürün ve süreç geliştirmeyi hızlandırın.",
+                  'A2': "Hedef inovasyon: geri dönüştürülmüş girdiyle yeni ürün serileri geliştirerek rekabette ayrışın.",
+                  'A3': "Hedef inovasyon: çalışanların yeşil fikirlerini ödüllendirerek içeriden yenilik kültürü oluşturun.",
+                  'A4': "Hedef rekabet: uyum belgelerini ihracat pazarlarında giriş avantajına dönüştürün."},
+    'musteri': {'A1': "Hedef müşteri talebi: ürün bazında karbon verisini müşterilere dijital olarak raporlayın.",
+                'A2': "Hedef müşteri talebi: geri dönüştürülmüş içerik oranını müşteriye sunulan bir değer haline getirin.",
+                'A3': "Hedef müşteri talebi: müşteri denetimlerinde öne çıkan sosyal ve çevresel yetkinlikleri belgeleyin.",
+                'A4': "Hedef müşteri talebi: büyük alıcıların tedarikçi uyum şartlarını ISO 14001 ve SKDM raporuyla karşılayın."},
+}
+
+DEMO_ALIASES = {
+    'id': ['company id', 'id', 'firma id', 'firma no', 'firma', 'company', 'no'],
+    'scale': ['company size', 'company scale', 'size', 'scale', 'ölçek', 'firma ölçeği', 'büyüklük'],
+    'sector': ['sector', 'sektör', 'industry'],
+    'motivation': ['motivation', 'motivasyon', 'main motivation'],
+}
+SCALE_KEYS = [('mikro', 'Mikro'), ('micro', 'Mikro'), ('küçük', 'Küçük'), ('kucuk', 'Küçük'),
+              ('small', 'Küçük'), ('orta', 'Orta'), ('medium', 'Orta'), ('büyük', 'Büyük'),
+              ('buyuk', 'Büyük'), ('large', 'Büyük')]
 
 
-def tr_pct(x, d=1):
-    if x is None or (isinstance(x, float) and np.isnan(x)):
-        return "hesaplanmadı"
-    return "%" + f"{x:.{d}f}".replace(".", ",")
+def norm(s):
+    if s is None or (isinstance(s, float) and np.isnan(s)):
+        return ''
+    s = str(s).strip().lower().replace('ı', 'i').replace('İ', 'i')
+    return re.sub(r'[^0-9a-zçğöşü]', '', s)
 
 
-def tr_num(x, d=1):
-    return f"{x:.{d}f}".replace(".", ",")
+def norm_id(v):
+    if v is None or (isinstance(v, float) and np.isnan(v)):
+        return None
+    if isinstance(v, (int, np.integer)):
+        return str(int(v))
+    if isinstance(v, (float, np.floating)):
+        return str(int(v)) if float(v).is_integer() else str(v)
+    s = str(v).strip()
+    return None if s == '' or s.lower() == 'nan' else re.sub(r'\.0+$', '', s)
 
 
-st.markdown("""
-<style>
-.block-container{padding-top:2.2rem; max-width:1200px}
-.verdict{font-size:2rem; font-weight:800; line-height:1.15; margin:.1rem 0 .6rem}
-.muted{color:#5B6A61}
-.rec{background:#E2E8E3; border-radius:10px; padding:14px 18px; margin-top:.4rem}
-.card{background:#fff; border:1px solid #D5DDD7; border-radius:10px; padding:16px 20px; margin-bottom:14px}
-.card-top{display:flex; flex-wrap:wrap; align-items:center; gap:12px; margin-bottom:10px}
-.card-id{font-size:1.3rem; font-weight:800}
-.pill{color:#fff; padding:2px 10px; border-radius:12px; font-size:.85rem; font-weight:700}
-.card h4{margin:.6rem 0 .2rem; font-size:.95rem}
-.card p{margin:0; color:#333}
-</style>
-""", unsafe_allow_html=True)
+def to_number(v):
+    if v is None:
+        return np.nan
+    if isinstance(v, (int, float, np.integer, np.floating)):
+        return float(v)
+    try:
+        return float(str(v).strip().replace(',', '.'))
+    except ValueError:
+        return np.nan
 
 
-MODEL = m.default_model()
-TURLER = {"Tek firma": "tek", "Çoklu firma": "coklu"}
-XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+def scale_of(v):
+    s = str(v).strip().lower() if v is not None else ''
+    return next((label for key, label in SCALE_KEYS if s.startswith(key)), None)
 
 
-@st.cache_data(show_spinner=False)
-def hesapla(content, kind, sentez, sim):
-    model, survey, demo, rep, info = m.read_workbook(content, MODEL, kind)
-    result = m.analyze(model, survey, demo, rep, sentez=sentez, simulations=sim)
-    result['info'] = info
-    result['n_input'] = len(survey)
-    return result
+def id_key(x):
+    return (len(x), x)
 
 
-@st.cache_data(show_spinner=False)
-def sablon(kind):
-    return m.single_firm_template_excel(MODEL) if kind == 'tek' else m.multi_firm_template_excel(MODEL)
+# =============================================================================
+# MODEL
+# =============================================================================
+PALETTE = ['#1E6BD0', '#2B8A55', '#6F47B8', '#DB7614', '#C23B5A', '#15838F', '#8A6D1F', '#5B6770', '#9C3FB0', '#3E7D2E']
 
 
-# ------------------------------------------------------------------ kenar çubuğu
-with st.sidebar:
-    st.title("FANP Analiz Aracı")
-    st.caption("Yeşil dönüşüm strateji belirleme")
-    st.header("Veri")
-    tur_etiket = st.radio("Değerlendirme türü", list(TURLER), horizontal=True,
-                          help="Tek firma: bir firmanın puanları. Çoklu firma: tüm firmaların puanları ve firma bilgileri.")
-    kind = TURLER[tur_etiket]
-    if kind == 'tek':
-        st.caption("Şablonda kriter ihtiyaç puanlarını, ana başlık ağırlık puanlarını ve firma bilgilerini doldurun.")
+class ModelError(ValueError):
+    """Model tanımı tutarsız olduğunda anlaşılır bir mesajla fırlatılır."""
+
+
+class Model:
+    """FANP ağının tamamı: kümeler, kriterler, stratejiler, uzman matrisi ve puan ölçeği.
+    Algoritma hiçbir sayıyı sabit varsaymaz; her şey bu nesneden okunur."""
+
+    def __init__(self, clusters, criteria, alternatives, alt_matrix, scale_min=1, scale_max=9, spread=1,
+                 dependence=None, source='Varsayılan model'):
+        self.clusters = [tuple(str(x).strip() for x in c) for c in clusters]
+        self.criteria = [tuple(str(x).strip() for x in c) for c in criteria]
+        self.alternatives = [tuple(str(x).strip() for x in a) for a in alternatives]
+        self.alt_matrix = np.asarray(alt_matrix, float)
+        self.scale_min, self.scale_max, self.spread = float(scale_min), float(scale_max), float(spread)
+        self.dependence = None if dependence is None else np.asarray(dependence, float)
+        self.source = source
+        self._validate()
+        self.codes = [c[0] for c in self.criteria]
+        self.cl_codes = [c[0] for c in self.clusters]
+        self.alt_codes = [a[0] for a in self.alternatives]
+        self.cl_of = np.array([self.cl_codes.index(c[3]) for c in self.criteria])
+        self.members = [np.flatnonzero(self.cl_of == k) for k in range(len(self.clusters))]
+        self.labels = {a: f"{a}: {n}" if n and n != a else a for a, n in self.alternatives}
+        self.names = {a: (n or a) for a, n in self.alternatives}
+        self.colors = {a: DEFAULT_COLORS.get(a, PALETTE[i % len(PALETTE)]) for i, a in enumerate(self.alt_codes)}
+        self.needed = self.codes + self.cl_codes
+        self.header_of = {c[0]: c[1] for c in self.criteria}
+        self.header_of.update({c[0]: c[2] for c in self.clusters})
+        self.lookup = {}
+        for code, header in self.header_of.items():
+            for alias in (header, code):
+                n = norm(alias)
+                if n and n not in self.lookup:
+                    self.lookup[n] = code
+
+    def _validate(self):
+        err = []
+        if len(self.alternatives) < 2:
+            err.append("En az iki strateji (alternatif) gerekli.")
+        if not self.clusters:
+            err.append("En az bir küme gerekli.")
+        for name, codes in (('küme', [c[0] for c in self.clusters]), ('kriter', [c[0] for c in self.criteria]),
+                            ('strateji', [a[0] for a in self.alternatives])):
+            dup = sorted({c for c in codes if codes.count(c) > 1})
+            if dup:
+                err.append(f"Tekrarlanan {name} kodu: {', '.join(dup)}")
+            if any(not c for c in codes):
+                err.append(f"Boş {name} kodu var.")
+        cl = {c[0] for c in self.clusters}
+        orphan = [c[0] for c in self.criteria if c[3] not in cl]
+        if orphan:
+            err.append("Kümesi tanımlı olmayan kriterler: " + ', '.join(orphan))
+        empty = [c[0] for c in self.clusters if not any(k[3] == c[0] for k in self.criteria)]
+        if empty:
+            err.append("Kriteri olmayan kümeler: " + ', '.join(empty))
+        headers = [norm(c[1]) for c in self.criteria] + [norm(c[2]) for c in self.clusters]
+        dup_h = sorted({h for h in headers if h and headers.count(h) > 1})
+        if dup_h:
+            err.append("Aynı anket başlığı birden fazla yerde kullanılmış: " + ', '.join(dup_h))
+        if not (self.scale_min > 0 and self.scale_max > self.scale_min):
+            err.append("Puan ölçeği pozitif olmalı ve üst sınır alt sınırdan büyük olmalı.")
+        if self.spread < 0:
+            err.append("Bulanıklık genişliği negatif olamaz.")
+        if self.alt_matrix.shape != (len(self.criteria), len(self.alternatives)):
+            err.append(f"Uzman matrisi {len(self.criteria)} x {len(self.alternatives)} olmalı, "
+                       f"{self.alt_matrix.shape[0]} x {self.alt_matrix.shape[1] if self.alt_matrix.ndim == 2 else 0} geldi.")
+        elif np.isnan(self.alt_matrix).any():
+            err.append("Uzman matrisinde boş hücre var.")
+        elif ((self.alt_matrix < self.scale_min) | (self.alt_matrix > self.scale_max)).any():
+            err.append(f"Uzman matrisinde {self.scale_min:g} ile {self.scale_max:g} dışında puan var.")
+        if self.dependence is not None:
+            K = len(self.clusters)
+            if self.dependence.shape != (K, K) or np.isnan(self.dependence).any() or (self.dependence < 0).any():
+                err.append(f"Bağımlılık matrisi {K} x {K}, boşluksuz ve negatif olmayan değerlerden oluşmalı.")
+            elif (self.dependence.sum(0) <= 0).any():
+                err.append("Bağımlılık matrisinde toplamı sıfır olan sütun var.")
+        if err:
+            raise ModelError(" ".join(err))
+
+    def with_scale(self, scale_min, scale_max, spread=None):
+        return Model(self.clusters, self.criteria, self.alternatives, self.alt_matrix, scale_min, scale_max,
+                     self.spread if spread is None else spread, self.dependence, self.source)
+
+    def with_dependence(self, dependence):
+        return Model(self.clusters, self.criteria, self.alternatives, self.alt_matrix, self.scale_min,
+                     self.scale_max, self.spread, dependence, self.source)
+
+
+def default_model():
+    return Model(DEFAULT_CLUSTERS, [(c[0], c[1], c[2], c[0].split('.')[0]) for c in DEFAULT_CRITERIA],
+                 DEFAULT_ALTERNATIVES, [c[3] for c in DEFAULT_CRITERIA])
+
+
+# =============================================================================
+# FANP HESABI
+# =============================================================================
+def to_tfn(model, r):
+    r = np.asarray(r, float)
+    return (np.clip(r - model.spread, model.scale_min, model.scale_max), r.copy(),
+            np.clip(r + model.spread, model.scale_min, model.scale_max))
+
+
+def fuzzy_priority(l, m, u):
+    n = l.shape[-1]
+    eye = np.eye(n, dtype=bool)
+    Al = l[:, :, None] / u[:, None, :]
+    Am = m[:, :, None] / m[:, None, :]
+    Au = u[:, :, None] / l[:, None, :]
+    for A in (Al, Am, Au):
+        A[:, eye] = 1.0
+    sl, sm, su = Al.sum(1), Am.sum(1), Au.sum(1)
+    return (Al / su[:, None, :]).mean(2), (Am / sm[:, None, :]).mean(2), (Au / sl[:, None, :]).mean(2)
+
+
+RANDOM_INDEX = {1: 0.0, 2: 0.0, 3: 0.58, 4: 0.90, 5: 1.12, 6: 1.24, 7: 1.32, 8: 1.41, 9: 1.45, 10: 1.49,
+                11: 1.51, 12: 1.48, 13: 1.56, 14: 1.57, 15: 1.59}
+
+
+def consistency_ratios(model, ratings, cluster_scores):
+    R = np.atleast_2d(np.asarray(ratings, float))
+    C = np.atleast_2d(np.asarray(cluster_scores, float))
+
+    def cr(x):
+        n = x.shape[1]
+        if n < 3:
+            return np.zeros(x.shape[0])
+        A = x[:, :, None] / x[:, None, :]
+        lam = np.max(np.real(np.linalg.eigvals(A)), axis=1)
+        ri = RANDOM_INDEX.get(n, 1.59)
+        return np.maximum((lam - n) / (n - 1) / ri, 0.0)
+
+    cols = {code: cr(R[:, model.members[k]]) for k, code in enumerate(model.cl_codes)}
+    cols['Ana başlıklar'] = cr(C)
+    return pd.DataFrame(cols)
+
+
+def defuzz(l, m, u):
+    return (l + 2 * m + u) / 4
+
+
+def alt_normalized(model):
+    l, m, u = to_tfn(model, model.alt_matrix)
+    return l / u.sum(1, keepdims=True), m / m.sum(1, keepdims=True), u / l.sum(1, keepdims=True)
+
+
+def build_supermatrix(model, w21, w32, local_norm=None):
+    n, A = len(model.codes), len(model.alt_codes)
+    N = 1 + n + A
+    D = w21.shape[0]
+    W = np.zeros((D, N, N))
+    W[:, 1:1 + n, 0] = w21
+    if model.dependence is not None:
+        Dn = model.dependence / model.dependence.sum(0, keepdims=True)
+        W[:, 1:1 + n, 1:1 + n] = BAGIMLILIK_AGIRLIGI * Dn[model.cl_of][:, model.cl_of][None] * local_norm[:, :, None]
+        W[:, 1 + n:, 1:1 + n] = (1 - BAGIMLILIK_AGIRLIGI) * w32.T[None]
     else:
-        st.caption("Şablonun 'Firmalar' sayfasına firma bilgilerini, 'Puanlar' sayfasına her firmanın puanlarını girin.")
-    st.download_button(f"{tur_etiket} şablonunu indir", data=sablon(kind),
-                       file_name="fanp_tek_firma.xlsx" if kind == 'tek' else "fanp_coklu_firma.xlsx",
-                       mime=XLSX_MIME, width="stretch", key=f"sablon_{kind}")
-    up = st.file_uploader(f"{tur_etiket} Excel dosyası", type=["xlsx", "xlsm", "xls"], key=f"upload_{kind}",
-                          help="Sayfa adı ve sütun sırası önemli değil; başlıklar tanınır.")
-    if up is not None:
-        st.session_state[f"content_{kind}"] = up.getvalue()
-        st.session_state[f"name_{kind}"] = up.name
-    if kind == 'coklu' and ORNEK.exists() and st.button("Tez verisiyle aç", width="stretch"):
-        st.session_state["content_coklu"] = ORNEK.read_bytes()
-        st.session_state["name_coklu"] = "Tez anket verisi"
-
-    st.header("Ayarlar")
-    sentez = YONTEMLER[st.radio("Sentez yöntemi", list(YONTEMLER), index=0,
-                                help="Tezdeki yöntem l, m, u değerlerini sona kadar taşır ve net skoru (l + 2m + u) / 4 ile bulur. "
-                                     "Karşılaştırma yöntemi öncelikleri önce durulaştırıp normalize eder.")]
-    sim = st.select_slider("Sağlamlık analizi (simülasyon sayısı)", options=[0, 250, 500, 1000, 2000], value=1000,
-                           help="Her puan kendi bulanık aralığında rastgele oynatılır ve kazananın birinci kalma oranı ölçülür.")
-
-st.title("🌱 Yeşil Dönüşüm Karar Destek Sistemi")
-st.markdown('<p class="muted">Anket puanları bulanık ANP ile işlenir: her firma için stratejiler arasından en uygunu, '
-            'kararın ne kadar sağlam olduğu ve ölçeğe özel aksiyon planı.</p>', unsafe_allow_html=True)
+        W[:, 1 + n:, 1:1 + n] = w32.T[None]
+    W[:, 1 + n:, 1 + n:] = np.eye(A)
+    return W
 
 
-def strateji_tanimlari(model):
-    with st.expander(f"Strateji seçenekleri ({', '.join(model.alt_codes)} nedir?)"):
-        per_row = 4
-        for start in range(0, len(model.alternatives), per_row):
-            cols = st.columns(per_row)
-            for col, (code, name) in zip(cols, model.alternatives[start:start + per_row]):
-                icon, desc = m.STRATEGY_DESCRIPTIONS.get(code, ('', ''))
-                with col:
-                    st.markdown(f"### {icon} {code}\n**{name}**")
-                    if desc:
-                        st.caption(desc)
+def limit_supermatrix(W, tol=1e-15, max_iter=10000):
+    L = W.copy()
+    for _ in range(max_iter):
+        new = L @ W
+        if np.max(np.abs(new - L)) < tol:
+            return new
+        L = new
+    return L
 
 
-if f"content_{kind}" not in st.session_state:
-    strateji_tanimlari(MODEL)
-    if kind == 'tek':
-        st.info("Soldan tek firma şablonunu indirin, firmanın puanlarını doldurun ve dosyayı yükleyin.")
+def _cluster_normalize(model, x):
+    x = x.copy()
+    for cols in model.members:
+        x[:, cols] /= x[:, cols].sum(1, keepdims=True)
+    return x
+
+
+def run_fanp(model, ratings, cluster_scores, sentez=None, full_limit=False):
+    sentez = sentez or SENTEZ
+    R = np.atleast_2d(np.asarray(ratings, float))
+    C = np.atleast_2d(np.asarray(cluster_scores, float))
+    D, n = R.shape
+    loc = [np.zeros((D, n)) for _ in range(3)]
+    for cols in model.members:
+        for comp, p in zip(loc, fuzzy_priority(*to_tfn(model, R[:, cols]))):
+            comp[:, cols] = p
+    cl = list(fuzzy_priority(*to_tfn(model, C)))
+    altn = list(alt_normalized(model))
+
+    if sentez == 'durulastirilmis':
+        crisp = _cluster_normalize(model, defuzz(*loc))
+        cc = defuzz(*cl)
+        ac = defuzz(*altn)
+        loc = [crisp] * 3
+        cl = [cc / cc.sum(1, keepdims=True)] * 3
+        altn = [ac / ac.sum(1, keepdims=True)] * 3
+        comps = 1
+    elif sentez == 'bulanik':
+        comps = 3
     else:
-        st.info("Soldan çoklu firma şablonunu indirin, firmaların bilgilerini ve puanlarını doldurun ve dosyayı yükleyin"
-                + (" ya da tez verisiyle açın." if ORNEK.exists() else "."))
-    with st.expander("Hangi puanlar giriliyor?", expanded=True):
-        st.markdown(f"{len(MODEL.cl_codes)} ana başlık altında {len(MODEL.codes)} kriter var. Her kriter için "
-                    f"{MODEL.scale_min:g} ile {MODEL.scale_max:g} arasında bir **ihtiyaç puanı** "
-                    f"({MODEL.scale_min:g} yeterli yetkinlik, {MODEL.scale_max:g} kritik eksiklik), her ana başlık için de "
-                    "bir **ağırlık puanı** girilir. Stratejiler girilmez; uygulama bu puanlardan hesaplar.")
-        cols = st.columns(3)
-        for k, (code, name, header) in enumerate(MODEL.clusters):
-            with cols[k % 3]:
-                st.markdown(f"**{name} ({code})**  \n" + ", ".join(MODEL.criteria[i][1] for i in MODEL.members[k]))
-        with cols[len(MODEL.clusters) % 3]:
-            st.markdown("**Ana başlık ağırlıkları**  \n" + ", ".join(c[2] for c in MODEL.clusters))
-    st.stop()
+        raise ValueError(f"Bilinmeyen sentez yöntemi: {sentez}")
 
-try:
-    with st.spinner("FANP hesaplanıyor…"):
-        res = hesapla(st.session_state[f"content_{kind}"], kind, sentez, sim)
-except (m.ModelError, ValueError) as e:
-    st.error(str(e))
-    st.stop()
-
-model = res['model']
-firms, report = res['firms'], res['report']
-A = model.alt_codes
-label_order = [model.labels[a] for a in A]
-COLOR_SCALE = alt.Scale(domain=label_order, range=[model.colors[a] for a in A])
-bar_h = max(160, 42 * len(A))
-strateji_tanimlari(model)
-
-if firms.empty:
-    st.error("Analiz edilebilecek firma yok. Veri raporundaki eksik veya aralık dışı puanları düzeltip tekrar yükleyin.")
-    st.dataframe(report, hide_index=True, width="stretch")
-    st.stop()
-
-with st.sidebar:
-    st.header("Çıktı")
-    st.download_button("Sonuçları Excel olarak indir", data=m.results_excel(res), file_name="fanp_sonuclari.xlsx",
-                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", width="stretch")
-    st.caption(f"{st.session_state[f'name_{kind}']}: {res['n_input']} firmadan {len(firms)} tanesi analiz edildi.")
-
-other_label = "tezdeki yöntem" if res['other'] == 'bulanik' else "durulaştırılmış sentez"
-share_cols = [f'{a} payı (%)' for a in A]
-tabs = st.tabs(["Genel bakış", "Firmalar", "Yol haritası", "Firma ayrıntısı", "Strateji ve ölçek matrisi",
-                "Yöntem ve kaynakça", f"Veri raporu ({len(report)})", "💬 Yeşil Danışman (Chatbot)"])
-
-# ------------------------------------------------------------------ genel bakış
-with tabs[0]:
-    g = res['group'].sort_values('Pay (%)', ascending=False)
-    win = g.iloc[0]
-    tek = len(firms) == 1
-    baslik = (f"Firma {firms.iloc[0]['ID']} için en uygun strateji" if tek
-              else f"Sektör geneli: {len(firms)} firmanın ortak kararı (puanların geometrik ortalaması)")
-    st.markdown(f'<div class="muted">{baslik}</div>'
-                f'<div class="verdict" style="color:{model.colors[win["Kod"]]}">{model.names[win["Kod"]]}</div>',
-                unsafe_allow_html=True)
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Strateji payı" if tek else "Sektör genelinde payı", tr_pct(win['Pay (%)']),
-              f"ikinciden {tr_num(win['Pay (%)'] - g.iloc[1]['Pay (%)'])} puan önde", delta_color="off", delta_arrow="off")
-    c2.metric("Birincilik olasılığı" if tek else "Sektör kararının birincilik olasılığı", tr_pct(win['Birincilik olasılığı (%)'], 0))
-    if not tek:
-        c3.metric("Bu stratejiyi seçen firma", f"{(firms['Kazanan'] == win['Kod']).sum()} / {len(firms)}")
-    if sim > 0 and not tek:
-        c4.metric("Sağlam kararlı firma", f"{(firms['Birincilik olasılığı (%)'] >= 80).sum()} / {len(firms)}",
-                  "birincilik olasılığı %80 ve üstü", delta_color="off", delta_arrow="off")
-    if not tek:
-        st.info(m.commentary(model, win['Kod']))
-
-    def strateji_paylari():
-        st.subheader("Strateji payları" if tek else "Sektör geneli strateji payları")
-        gd = g.assign(Etiket=g['Pay (%)'].map(tr_pct))
-        base = alt.Chart(gd).encode(y=alt.Y('Strateji:N', sort='-x', title=None, axis=alt.Axis(labelLimit=320)),
-                                    x=alt.X('Pay (%):Q', title='Pay (%)'))
-        st.altair_chart((base.mark_bar(cornerRadiusEnd=4).encode(color=alt.Color('Strateji:N', scale=COLOR_SCALE, legend=None),
-                                                                 tooltip=['Strateji', alt.Tooltip('Pay (%):Q', format='.2f'),
-                                                                          alt.Tooltip('Birincilik olasılığı (%):Q', format='.0f')])
-                         + base.mark_text(align='left', dx=4).encode(text='Etiket:N')).properties(height=bar_h), width="stretch")
-
-    if tek:
-        strateji_paylari()
+    glob = [cl[k][:, model.cl_of] * loc[k] for k in range(3)]
+    scores, limit = [], None
+    for k in range(comps):
+        if model.dependence is None and not full_limit:
+            scores.append(glob[k] @ altn[k])
+        else:
+            L = limit_supermatrix(build_supermatrix(model, glob[k], altn[k], _cluster_normalize(model, loc[k])))
+            scores.append(L[:, 1 + n:, 0])
+            if k == 0:
+                limit = L
+    if comps == 3:
+        net, gnet, cw = defuzz(*scores), defuzz(*glob), cl[1]
     else:
-        left, right = st.columns([1.1, 1])
-        with left:
-            strateji_paylari()
-        with right:
-            st.subheader("Firmaların kazanan stratejisi")
-            cnt = firms['Kazanan'].value_counts().reindex(A, fill_value=0).rename_axis('Kod').reset_index(name='Firma')
-            cnt['Strateji'] = cnt['Kod'].map(model.labels)
-            st.altair_chart(alt.Chart(cnt).mark_bar(cornerRadiusEnd=4).encode(
-                y=alt.Y('Strateji:N', sort=label_order, title=None, axis=alt.Axis(labelLimit=320)),
-                x=alt.X('Firma:Q', title='Firma sayısı', axis=alt.Axis(tickMinStep=1)),
-                color=alt.Color('Strateji:N', scale=COLOR_SCALE, legend=None), tooltip=['Strateji', 'Firma']
-            ).properties(height=bar_h), width="stretch")
+        net, gnet, cw = scores[0], glob[0], cl[0]
+    return {'net': net, 'global': gnet, 'cluster': cw, 'limit': limit}
 
-        st.subheader("Sektör ve ölçek kırılımı")
-        k1, k2 = st.columns(2)
-        order_scale = [s for s in SCALE_ORDER if s in set(firms['Ölçek'])]
-        for col, field, sort in [(k1, 'Sektör', None), (k2, 'Ölçek', order_scale)]:
-            d = firms.groupby([field, 'Strateji']).size().reset_index(name='Firma')
-            col.markdown("**Sektöre göre**" if field == 'Sektör' else "**Ölçeğe göre**")
-            col.altair_chart(alt.Chart(d).mark_bar(size=22).encode(
-                y=alt.Y(f'{field}:N', sort=sort, title=None, axis=alt.Axis(labelOverlap=False, labelLimit=200)),
-                x=alt.X('Firma:Q', stack='zero', title='Firma sayısı', axis=alt.Axis(tickMinStep=1)),
-                color=alt.Color('Strateji:N', scale=COLOR_SCALE, legend=None),
-                tooltip=[field, 'Strateji', 'Firma']).properties(height=36 * firms[field].nunique() + 40), width="stretch")
-        st.caption("Renkler, üstteki grafiklerdeki strateji renkleriyle aynıdır; ayrıntı için çubukların üzerine gelin.")
 
-# ------------------------------------------------------------------ firmalar
-with tabs[1]:
-    st.subheader("Karar haritası")
-    st.caption("Her hücre, stratejinin firmadaki payıdır. Çerçeveli hücre firmanın kazananı.")
-    heat = firms.melt(id_vars=['ID', 'Kazanan'], value_vars=share_cols, var_name='k', value_name='Pay (%)')
-    heat['Kod'] = heat['k'].str.replace(' payı (%)', '', regex=False)
-    heat['Strateji'] = heat['Kod'].map(model.names)
-    heat['Kazanan mı'] = heat['Kod'] == heat['Kazanan']
-    heat['Firma'] = 'Firma ' + heat['ID']
-    firm_order = ['Firma ' + i for i in firms['ID']]
-    name_order = [model.names[a] for a in A]
-    mid = float(heat['Pay (%)'].min() + 0.6 * (heat['Pay (%)'].max() - heat['Pay (%)'].min()))
-    rect = alt.Chart(heat).mark_rect(cornerRadius=3).encode(
-        x=alt.X('Strateji:N', sort=name_order, title=None,
-                axis=alt.Axis(orient='top', labelAngle=0 if len(A) <= 5 else -30, labelOverlap=False, labelLimit=180)),
-        y=alt.Y('Firma:N', sort=firm_order, title=None),
-        color=alt.Color('Pay (%):Q', scale=alt.Scale(scheme='greens'), legend=alt.Legend(title='Pay (%)')),
-        stroke=alt.condition('datum["Kazanan mı"]', alt.value('#1E2B24'), alt.value(None)),
-        strokeWidth=alt.condition('datum["Kazanan mı"]', alt.value(2.5), alt.value(0)),
-        tooltip=['Firma', 'Strateji', alt.Tooltip('Pay (%):Q', format='.2f')])
-    text = alt.Chart(heat).mark_text(fontSize=11).encode(
-        x=alt.X('Strateji:N', sort=name_order), y=alt.Y('Firma:N', sort=firm_order),
-        text=alt.Text('Pay (%):Q', format='.1f'),
-        color=alt.condition(f'datum["Pay (%)"] > {mid}', alt.value('white'), alt.value('#1E2B24')))
-    st.altair_chart((rect + text).properties(height=28 * len(firms) + 60), width="stretch")
+def robustness(model, ratings, cluster_scores, n=SIMULASYON_SAYISI, seed=RASTGELE_TOHUM, sentez=None):
+    if n <= 0:
+        return None
+    rng = np.random.default_rng(seed)
 
-    st.subheader("Sonuç tablosu")
-    view = firms[['ID', 'Ölçek', 'Sektör', 'Strateji'] + share_cols +
-                 ['Fark (yüzde puan)', 'Birincilik olasılığı (%)', 'Diğer yöntemle kazanan', 'Motivasyon', 'Öneri']].copy()
-    view['Diğer yöntemle kazanan'] = view['Diğer yöntemle kazanan'].map(model.names)
-    st.dataframe(view, hide_index=True, width="stretch", column_config={
-        'ID': st.column_config.TextColumn('Firma', width='small'),
-        'Strateji': st.column_config.TextColumn('En uygun strateji', width='medium'),
-        **{c: st.column_config.NumberColumn(c.replace(' payı (%)', ' payı'), format='%.1f') for c in share_cols},
-        'Fark (yüzde puan)': st.column_config.NumberColumn('İkinciye fark', format='%.1f'),
-        'Birincilik olasılığı (%)': st.column_config.ProgressColumn('Birincilik olasılığı', min_value=0, max_value=100, format='%.0f%%'),
-        'Diğer yöntemle kazanan': st.column_config.TextColumn(f'Kazanan ({other_label})'),
-        'Öneri': st.column_config.TextColumn('Aksiyon planı', width='large'),
-    })
-    if sim > 0:
-        fragile = firms[firms['Birincilik olasılığı (%)'] < 80]
-        if len(fragile):
-            st.warning("Kararı kırılgan firmalar (birincilik olasılığı %80 altı): " + "; ".join(
-                f"Firma {r['ID']}: {model.names[r['Kazanan']]} ile {model.names[r['İkinci']]} yakın, {tr_pct(r['Birincilik olasılığı (%)'], 0)}"
-                for _, r in fragile.iterrows()))
+    def sample(r):
+        l, m, u = to_tfn(model, np.asarray(r, float))
+        out = np.repeat(m[None, :], n, axis=0)
+        var = u > l
+        if var.any():
+            out[:, var] = rng.triangular(l[var], m[var], u[var], size=(n, int(var.sum())))
+        return out
 
-# ------------------------------------------------------------------ yol haritası
-with tabs[2]:
-    st.subheader("Stratejik yol haritası ve aksiyon kartları")
-    st.caption("Her firma için modelin seçtiği strateji, firmanın motivasyonuna göre yönlendirme ve ölçeğe özel aksiyon planı.")
-    filtre = st.multiselect("Stratejiye göre süz", A, default=A, format_func=lambda a: model.labels[a])
-    for _, r in firms[firms['Kazanan'].isin(filtre)].iterrows():
-        color = model.colors[r['Kazanan']]
-        prob = "" if pd.isna(r['Birincilik olasılığı (%)']) else f", birincilik {tr_pct(r['Birincilik olasılığı (%)'], 0)}"
-        ref = r['Kaynak']
-        link = m.REFERENCE_LINKS.get(ref)
-        ref_html = f'<a href="{link}" target="_blank">{ref}</a>' if link else (ref or 'tanımlı değil')
-        st.markdown(
-            f'<div class="card" style="border-left:8px solid {color}">'
-            f'<div class="card-top"><span class="card-id" style="color:{color}">#{r["ID"]}</span>'
-            f'<span class="muted">{r["Ölçek"]} ölçek, {r["Sektör"]}</span>'
-            f'<span class="pill" style="background:{color}">{model.labels[r["Kazanan"]]}</span>'
-            f'<span class="muted">pay {tr_pct(r[r["Kazanan"] + " payı (%)"])}{prob}</span></div>'
-            f'<div class="muted">Motivasyon: {r["Motivasyon"]}</div>'
-            f'<h4>🎯 Stratejik yönlendirme</h4><p>{r["Stratejik yönlendirme"]}</p>'
-            f'<h4>📝 Aksiyon planı</h4><p>{r["Öneri"]}</p>'
-            f'<div class="muted" style="margin-top:6px;font-size:.85rem">📚 Kaynak: {ref_html}</div></div>',
-            unsafe_allow_html=True)
+    net = run_fanp(model, sample(ratings), sample(cluster_scores), sentez)['net']
+    wins = net.argmax(1)
+    return np.bincount(wins, minlength=len(model.alt_codes)) / n
 
-# ------------------------------------------------------------------ firma ayrıntısı
-with tabs[3]:
-    fid = st.selectbox("Firma", firms['ID'], format_func=lambda x: f"Firma {x}")
-    f = firms.set_index('ID').loc[fid]
-    w = res['weights'].set_index('ID').loc[fid]
-    cw = res['cluster_weights'].set_index('ID').loc[fid]
-    st.markdown(f'<div class="muted">Firma {fid}: {f["Ölçek"]} ölçek, {f["Sektör"]}</div>'
-                f'<div class="verdict" style="color:{model.colors[f["Kazanan"]]}">{model.names[f["Kazanan"]]}</div>',
-                unsafe_allow_html=True)
-    a, b, c = st.columns(3)
-    a.metric("Strateji payı", tr_pct(f[f'{f["Kazanan"]} payı (%)']))
-    b.metric("İkinciye fark", tr_num(f['Fark (yüzde puan)']) + " puan", model.names[f['İkinci']], delta_color="off", delta_arrow="off")
-    c.metric("Birincilik olasılığı", tr_pct(f['Birincilik olasılığı (%)'], 0))
-    notes = [f"En yüksek tutarlılık oranı {tr_num(f['En yüksek tutarlılık oranı'], 3)} (eşik 0,10)"]
-    if f['Diğer yöntemle kazanan'] != f['Kazanan']:
-        notes.append(f"{other_label} ile kazanan {model.names[f['Diğer yöntemle kazanan']]} olurdu")
-    st.caption(". ".join(notes) + ".")
 
-    l, r = st.columns(2)
-    with l:
-        st.subheader("Küme ihtiyaç ağırlıkları")
-        cd = pd.DataFrame({'Küme': [c_[1] for c_ in model.clusters], 'Ağırlık (%)': cw[model.cl_codes].values * 100})
-        st.altair_chart(alt.Chart(cd).mark_bar(color='#4F5E55', cornerRadiusEnd=3).encode(
-            y=alt.Y('Küme:N', sort=None, title=None, axis=alt.Axis(labelLimit=260)), x=alt.X('Ağırlık (%):Q'),
-            tooltip=['Küme', alt.Tooltip('Ağırlık (%):Q', format='.1f')]
-        ).properties(height=max(120, 34 * len(model.clusters))), width="stretch")
-        top_n = min(8, len(model.codes))
-        st.subheader(f"En ağır {top_n} kriter")
-        wd = pd.DataFrame({'Kriter': [f"{c_[2]} ({c_[1]})" for c_ in model.criteria], 'Ağırlık (%)': w[model.codes].values * 100}) \
-            .nlargest(top_n, 'Ağırlık (%)')
-        st.altair_chart(alt.Chart(wd).mark_bar(color='#4F5E55', cornerRadiusEnd=3).encode(
-            y=alt.Y('Kriter:N', sort='-x', title=None, axis=alt.Axis(labelLimit=260)), x=alt.X('Ağırlık (%):Q'),
-            tooltip=['Kriter', alt.Tooltip('Ağırlık (%):Q', format='.2f')]).properties(height=30 * top_n), width="stretch")
-    with r:
-        st.subheader("Strateji payları")
-        sd = pd.DataFrame({'Strateji': label_order, 'Pay (%)': [f[f'{x} payı (%)'] for x in A],
-                           'Birincilik (%)': [f.get(f'{x} birincilik (%)', np.nan) for x in A]})
-        st.altair_chart(alt.Chart(sd).mark_bar(cornerRadiusEnd=3).encode(
-            y=alt.Y('Strateji:N', sort='-x', title=None, axis=alt.Axis(labelLimit=320)), x=alt.X('Pay (%):Q'),
-            color=alt.Color('Strateji:N', scale=COLOR_SCALE, legend=None),
-            tooltip=['Strateji', alt.Tooltip('Pay (%):Q', format='.2f'), alt.Tooltip('Birincilik (%):Q', format='.0f')]
-        ).properties(height=bar_h), width="stretch")
-        st.subheader("Stratejik yönlendirme")
-        st.caption(f"Motivasyon: {f['Motivasyon']}")
-        st.markdown(f'<div class="rec">{f["Stratejik yönlendirme"]}</div>', unsafe_allow_html=True)
-        st.subheader(f"Aksiyon planı ({f['Ölçek']} ölçek)")
-        ref = m.APA_REFERENCES.get(f['Kaynak'], '')
-        st.markdown(f'<div class="rec">{f["Öneri"]}' + (f'<br><small class="muted">Kaynak: {ref}</small>' if ref else '') + '</div>',
-                    unsafe_allow_html=True)
+def validity_test(model):
+    lo, hi = model.scale_min, model.scale_max
+    rows = []
+    for k, (code, name, _) in enumerate(model.clusters):
+        cs = np.full(len(model.cl_codes), lo); cs[k] = hi
+        rr = np.where(model.cl_of == k, hi, lo)
+        row = {'Senaryo': f"Sadece {name} ({code}) kümesinde kritik ihtiyaç",
+               'Beklenen': model.alt_codes[int(model.alt_matrix[model.members[k]].mean(0).argmax())]}
+        for mode in ('bulanik', 'durulastirilmis'):
+            row[f'Kazanan ({mode})'] = model.alt_codes[int(run_fanp(model, rr, cs, mode)['net'][0].argmax())]
+        rows.append(row)
+    return pd.DataFrame(rows)
 
-# ------------------------------------------------------------------ strateji ve ölçek matrisi
-with tabs[4]:
-    st.subheader("Strateji ve ölçek matrisi")
-    st.caption("Her strateji için firma ölçeğine göre aksiyon planı.")
-    st.dataframe(m.scale_matrix(model), hide_index=True, width="stretch",
-                 column_config={sc: st.column_config.TextColumn(sc, width='large') for sc in SCALE_ORDER[:4]})
 
-# ------------------------------------------------------------------ yöntem
-with tabs[5]:
-    st.subheader("Hesap adımları")
-    sp = f"{model.spread:g}".replace(".", ",")
-    st.markdown(f"""
-1. Puanlar ihtiyaç düzeyini gösterir: {model.scale_min:g} yeterli yetkinlik ve asgari ihtiyaç, {model.scale_max:g} kritik eksiklik ve azami destek ihtiyacıdır. Her puan üçgen bulanık sayıya çevrilir: p için (p−{sp}, p, p+{sp}), ölçek sınırlarında kırpılır.
-2. Aynı kümedeki kriterlerden bulanık ikili karşılaştırma matrisi kurulur: l = lᵢ/uⱼ, m = mᵢ/mⱼ, u = uᵢ/lⱼ.
-3. Bulanık toplamsal normalizasyon (l/Σu, m/Σm, u/Σl) ve satır ortalamasıyla yerel öncelikler, aynı işlemle ana başlık öncelikleri bulunur. Her matris için tutarlılık oranı (CR < 0,10) kontrol edilir.
-4. Global ağırlık = ana başlık ağırlığı ⊗ yerel ağırlık.
-5. Uzmanların, her stratejinin kriterdeki ihtiyacı karşılama puanları bulanık olarak normalize edilir.
-6. {"Öncelikler (l + 2m + u) / 4 ile durulaştırılıp yeniden normalize edilir (karşılaştırma yöntemi)." if sentez == "durulastirilmis" else "l, m ve u bileşenleri sona kadar ayrı taşınır."}
-7. Süpermatris kurulur (amaç, kriterler, stratejiler; stratejiler yutucu{", kriterler arası iç bağımlılık dahil" if model.dependence is not None else ""}) ve limit süpermatristeki strateji öncelikleri bulanık skor olur{"" if sentez == "durulastirilmis" else "; net skor (l + 2m + u) / 4 ile bulunur (toplam integral değer yöntemi, λ = 0,5)"}.
-8. Sektör geneli için tüm firmaların puanlarının geometrik ortalaması aynı modelden geçirilir.
-9. Sağlamlık: her puan kendi üçgen dağılımından {sim} kez örneklenir, kazananın birinci kalma oranı ölçülür.
-""")
-    st.caption(f"{len(model.cl_codes)} ana başlık, {len(model.codes)} kriter, {len(A)} strateji.")
-    st.subheader("Yöntem geçerlilik testi")
-    st.caption("Bir firmanın ihtiyacı tek bir kümede kritik (ölçek üstü), geri kalan her yerde asgari (ölçek altı) ise "
-               "uzman tablosunun o kümede ihtiyacı en iyi karşıladığını söylediği strateji kazanmalıdır.")
-    vt = m.validity_test(model)
-    mark = lambda x, e: f"{model.names[x]} {'✓' if x == e else '✗'}"
-    st.dataframe(pd.DataFrame({'Senaryo': vt['Senaryo'], 'Beklenen': vt['Beklenen'].map(model.names),
-                               'Tezdeki yöntem': [mark(x, e) for x, e in zip(vt['Kazanan (bulanik)'], vt['Beklenen'])],
-                               'Durulaştırılmış sentez': [mark(x, e) for x, e in zip(vt['Kazanan (durulastirilmis)'], vt['Beklenen'])]}),
-                 hide_index=True, width="stretch")
-    with st.expander("Sektör geneli global kriter ağırlıkları"):
-        gw = res['group_weights'].assign(**{'Global ağırlık (%)': lambda d: d['Global ağırlık'] * 100}).drop(columns='Global ağırlık')
-        st.dataframe(gw, hide_index=True, width="stretch",
-                     column_config={'Global ağırlık (%)': st.column_config.NumberColumn(format='%.2f')})
-    st.subheader("Akademik kaynakça")
-    all_ref_dict = {**m.APA_REFERENCES, **{k: v['citation'] for k, v in m.EXTENDED_REFERENCES.items()}}
-    all_link_dict = {**m.REFERENCE_LINKS, **{k: v['link'] for k, v in m.EXTENDED_REFERENCES.items()}}
-    for code, text in all_ref_dict.items():
-        link = all_link_dict.get(code)
-        st.markdown(f"**{code}** {text}" + (f" [Kaynağa git]({link})" if link else ""))
+# =============================================================================
+# ÖNERİLER
+# =============================================================================
+def recommendation(model, alt, scale):
+    if scale is None:
+        return "Ölçek bilgisi olmadığı için ölçeğe özel aksiyon planı üretilmedi.", ""
+    rec = RECOMMENDATIONS_MAP.get(alt, {}).get(scale)
+    if rec:
+        return rec
+    return f"{model.names[alt]} stratejisi için {scale.lower()} ölçekte tanımlı bir aksiyon planı yok.", ""
 
-# ------------------------------------------------------------------ veri raporu
-with tabs[6]:
-    info = res.get('info', {})
-    st.caption(f"Puan sayfası: {info.get('puan_sayfasi', 'bulunamadı')}. Firma bilgileri: "
-               f"{info.get('demografi_sayfasi', 'bulunamadı')}.")
-    if len(report):
-        st.dataframe(report, hide_index=True, width="stretch")
+
+def motivation_advice(model, win, motivation):
+    if motivation is None or (isinstance(motivation, float) and np.isnan(motivation)) or not str(motivation).strip():
+        return "Motivasyon bilgisi yok."
+    text = str(motivation).lower()
+    for key, words in MOTIVATION_KEYS:
+        if any(w in text for w in words) and win in MOTIVATION_ADVICE.get(key, {}):
+            return MOTIVATION_ADVICE[key][win]
+    return f"'{motivation}' motivasyonunuzu {model.names[win]} stratejisiyle birleştirecek bir pilot proje tanımlayın."
+
+
+def commentary(model, win):
+    return COMMENTARY_TEMPLATES.get(win, f"Sektör genelinde öne çıkan strateji {model.labels[win]}.")
+
+
+# =============================================================================
+# GELİŞMİŞ YEŞİL DÖNÜŞÜM DANIŞMAN MOTORU
+# =============================================================================
+CONSULTANT_INTENTS = {
+    'skdm_mevzuat': {
+        'terms': ['skdm', 'cbam', 'karbon vergisi', 'mevzuat', 'yasa', 'ceza', 'ab', 'avrupa', 'ihracat', 'uyum', 'emisyon'],
+        'strategy': 'A4',
+        'analysis': "AB Sınırda Karbon Düzenleme Mekanizması (SKDM) ve ulusal emisyon ticareti regülasyonları ihracatçı KOBİ'ler için doğrudan maliyet ve kota riski barındırır.",
+        'prescription': [
+            "Tesis sınırları içerisindeki Kapsam 1 (doğrudan) ve Kapsam 2 (dolaylı elektrik) sera gazı emisyonlarınızı ISO 14064-1 standardına göre envanterleyin.",
+            "TÜRKAK akreditasyonuna sahip doğrulayıcı kuruluşlarla ön uygunluk denetimi planlayın.",
+            "İhracat sözleşmelerine ürün bazlı gömülü karbon (embedded carbon) beyan sayfaları ekleyin."
+        ],
+        'leads': [
+            "Kurumsal Karbon Ayak İzi Doğrulama Firmaları",
+            "Mevzuat & Çevre Hukuku Danışmanlık Kuruluşları"
+        ],
+        'refs': ['[REF-07]', '[REF-10]', '[REF-11]', '[REF-14]']
+    },
+    'finans_tesvik': {
+        'terms': ['finans', 'para', 'maliyet', 'teşvik', 'hibe', 'kredi', 'bütçe', 'destek', 'kosgeb', 'tübitak', 'fon'],
+        'strategy': 'A1',
+        'analysis': "Yeşil dönüşüm yatırımlarında yüksek ilk yatırım maliyeti (CapEx) engeli, ulusal ve uluslararası faizsiz yeşil kredi hatları ile hafifletilebilir.",
+        'prescription': [
+            "KOSGEB Yeşil Sanayi Projesi kapsamındaki faizsiz geri ödemeli proje desteklerine (Güneş Enerjisi, Enerji Verimliliği) başvuru dosyanızı hazırlayın.",
+            "TÜBİTAK 1831 Yeşil İnovasyon Teknoloji Mentörlük Desteği ile Ar-Ge teşviklerinden yararlanın.",
+            "Yeşil Kredi faiz indirimlerinden faydalanmak adına bağımsız bir kuruluşa Enerji Etüt Raporu hazırlatın."
+        ],
+        'leads': [
+            "KOSGEB / TÜBİTAK Proje Hazırlama Danışmanları",
+            "Sürdürülebilirlik Odaklı Kalkınma Bankası Temsilcileri"
+        ],
+        'refs': ['[REF-06]', '[REF-12]']
+    },
+    'dongusel_atik': {
+        'terms': ['atık', 'geri dönüşüm', 'hurda', 'döngüsel', 'simbiyoz', 'pe', 'pp', 'plastik', 'hammadde', 'fire', 'kaynak'],
+        'strategy': 'A2',
+        'analysis': "Üretim firesinin hammaddeye dönüştürülmesi ve endüstriyel simbiyoz, doğrusal 'al-yap-at' modelinin yarattığı maliyet baskısını kırar.",
+        'prescription': [
+            "Tesisinizde Malzeme Akış Analizi (Material Flow Analysis - MFA) yaparak üretim kayıp noktalarını dijital olarak etiketleyin.",
+            "PE (Polietilen) ve PP (Polipropilen) gibi katma değerli polimer atıklarını kaynağında ayrıştırarak lisanslı geri kazanım tesisleriyle kapalı devre tedarik sözleşmesi yapın.",
+            "Eko-tasarım prensipleri uygulayarak nihai ürünün geri dönüştürülebilirlik oranını müşteriye bir pazar kozu olarak sunun."
+        ],
+        'leads': [
+            "Lisanslı Geri Dönüşüm & Bertaraf Tesisleri",
+            "Döngüsel Ekonomi & Eko-Tasarım Danışmanlıkları"
+        ],
+        'refs': ['[REF-03]', '[REF-04]', '[REF-15]']
+    },
+    'enerji_verimliligi': {
+        'terms': ['enerji', 'ges', 'güneş', 'res', 'elektrik', 'fatura', 'tüketim', 'verim', 'motor', 'kompresör'],
+        'strategy': 'A3',
+        'analysis': "Yüksek elektrik tarifeleri ve karbon yoğun enerji tüketimi, işletme karlılığını ve sürdürülebilirlik performansını doğrudan tehdit eder.",
+        'prescription': [
+            "Tesis genelinde ISO 50001 Enerji Yönetim Sistemi standardını devreye alın ve enerji izleme ekibi kurun.",
+            "Basınçlı hava sistemleri ve verimsiz elektrik motorlarında (IE1/IE2) IE4/IE5 verimli motor dönüşümü gerçekleştirin.",
+            "Fabrika çatısına öz tüketim amaçlı Lisanssız Çatı GES kurulumu için dağıtım şirketinden çağrı mektubu başvurusu yapın."
+        ],
+        'leads': [
+            "EPC (Anahtar Teslim GES) Kurulum Şirketleri",
+            "Enerji Verimliliği Danışmanlık (EVD) Şirketleri"
+        ],
+        'refs': ['[REF-05]', '[REF-13]']
+    },
+    'dijital_otomasyon': {
+        'terms': ['dijital', 'iot', 'sensör', 'yazılım', 'otomasyon', 'scada', 'yapay zeka', 'izleme', 'takip', 'endüstri 4.0'],
+        'strategy': 'A1',
+        'analysis': "Ölçülemeyen emisyon ve enerji yönetilemez. Fiziksel hatların nesnelerin interneti (IoT) ile buluta bağlanması proses optimizasyonunu sağlar.",
+        'prescription': [
+            "Ana üretim hatlarına dijital alt sayaçlar ve enerji analizörleri yerleştirerek SCADA/Bulut izleme altyapısına bağlayın.",
+            "Porter & Heppelmann (2015) ilkelerine dayanarak, ürünlerin yaşam döngüsü boyunca karbon izini takip eden dijital veri tabanı kurun.",
+            "Tesis genelinde üretim darboğazlarını ve fireleri yapay zeka destekli kestirimci bakım modülleriyle minimize edin."
+        ],
+        'leads': [
+            "Endüstriyel IoT & Otomasyon Sistem Entegratörleri",
+            "Fabrika Enerji İzleme Yazılımı Sağlayıcıları"
+        ],
+        'refs': ['[REF-01]', '[REF-02]']
+    }
+}
+
+
+def advanced_green_consultant_reply(prompt: str, firm_data: dict = None, model = None) -> str:
+    text = prompt.lower().strip()
+    
+    matched_intents = []
+    for key, data in CONSULTANT_INTENTS.items():
+        score = sum(1 for term in data['terms'] if term in text)
+        if score > 0:
+            matched_intents.append((score, data))
+            
+    matched_intents.sort(key=lambda x: x[0], reverse=True)
+    
+    firm_id = firm_data.get('ID', 'Genel') if firm_data else 'Genel'
+    winner_strat = firm_data.get('Kazanan', 'A1') if firm_data else None
+    scale = firm_data.get('Ölçek', 'Orta') if firm_data else 'Orta'
+    motivation = firm_data.get('Motivasyon', 'Belirtilmemiş') if firm_data else 'Belirtilmemiş'
+    
+    out = []
+    
+    if firm_data:
+        strat_label = model.labels[winner_strat] if model else winner_strat
+        out.append(f"### 🏢 Kurumsal Değerlendirme [Firma #{firm_id} | {scale} Ölçek]")
+        out.append(f"**Modelin Belirlediği Öncelik:** `{strat_label}` | **Temel Motivasyon:** *\"{motivation}\"*")
+        out.append("---")
+    
+    if matched_intents:
+        top_intent = matched_intents[0][1]
+        
+        out.append(f"#### 🧠 Stratejik Analiz & Teşhis\n{top_intent['analysis']}")
+        
+        if winner_strat:
+            if winner_strat == top_intent['strategy']:
+                out.append(f"\n> 🎯 **Sistem Doğrulaması:** Bu konu, FANP modelinin firmanız için belirlediği **{winner_strat}** stratejisi ile **birebir örtüşmektedir**. Kaynak önceliğinizi doğrudan bu aksiyonlara yöneltmelisiniz.")
+            else:
+                out.append(f"\n> 💡 **Stratejik Sentez:** Sorguladığınız başlık firmanızın birincil stratejisinden ({winner_strat}) farklı görünse de, bu alanı **{winner_strat}** vizyonunuza destekçi bir alt proje olarak kurgulamalısınız.")
+        
+        out.append("\n#### 📋 Adım Adım Aksiyon Reçetesi")
+        for i, step in enumerate(top_intent['prescription'], 1):
+            out.append(f"{i}. {step}")
+            
+        out.append("\n#### 🤝 Doğrulanmış Çözüm Ortakları & Yönlendirmeler")
+        out.append("Bu aşamada dış danışmanlık veya tedarikçi iş birliği gerekebilir:")
+        for lead in top_intent['leads']:
+            out.append(f"- 🔗 **{lead}** (Ön görüşme & fizibilite desteği)")
+            
+        out.append("\n#### 📚 İlgili Metodoloji ve Kaynaklar")
+        all_refs = {**APA_REFERENCES, **EXTENDED_REFERENCES}
+        ref_links = {**REFERENCE_LINKS, **{k: v['link'] for k, v in EXTENDED_REFERENCES.items()}}
+        
+        for r_code in top_intent['refs']:
+            ref_info = all_refs.get(r_code)
+            ref_text = ref_info['citation'] if isinstance(ref_info, dict) else ref_info
+            link = ref_links.get(r_code, '#')
+            out.append(f"- **{r_code}**: {ref_text} [[İncele]({link})]")
+            
     else:
-        st.success("Sorun bulunmadı: tüm firmaların puanları eksiksiz ve ölçek içinde.")
+        out.append("#### 🌱 Yeşil Dönüşüm Uzman Asistanı")
+        out.append("Sorunuzu spesifik yeşil dönüşüm parametrelerine göre değerlendirebilmem için lütfen aşağıdaki başlıklardan birini seçin ya da bu doğrultuda detay verin:\n")
+        out.append("1. **SKDM ve Karbon Vergisi Yönetimi:** İhracat riskleri, emisyon takibi ve ISO 14064 belgelendirmesi.")
+        out.append("2. **Devlet Destekleri & Yeşil Finansman:** KOSGEB, TÜBİTAK ve Dünya Bankası kaynaklı faizsiz proje hibeleri.")
+        out.append("3. **Döngüsel Ekonomi & Atık Değerlendirme:** PE/PP plastik ayrıştırma, endüstriyel simbiyoz ve fire azaltımı.")
+        out.append("4. **Enerji Verimliliği & Öz Tüketim GES:** ISO 50001, motor dönüşümleri ve çatı güneş santralleri.")
+        out.append("5. **Endüstriyel IoT & Dijital İkizler:** Gerçek zamanlı enerji analitiği ve karbon izleme sistemleri.")
+        
+    return "\n".join(out)
 
-# ------------------------------------------------------------------ yeşil danışman (chatbot)
-with tabs[7]:
-    st.subheader("💬 Yeşil Dönüşüm Stratejik Danışmanı")
-    st.caption("Firmanızın FANP analiz sonuçlarına entegre, akademik referanslı ve B2B çözüm ortaklarına yönlendirici karar motoru.")
 
-    if "chat_messages" not in st.session_state:
-        st.session_state.chat_messages = [
-            {"role": "assistant", "content": (
-                "👋 **Merhaba! Ben Kurumsal Yeşil Dönüşüm Asistanınızım.**\n\n"
-                "Firmanızın anket analiz sonuçları, SKDM karbon vergisi, KOSGEB/TÜBİTAK yeşil teşvikleri veya "
-                "döngüsel ekonomi yol haritaları hakkında bana danışabilirsiniz. Başlamak için aşağıdan bir soru seçebilir ya da kendi sorunuzu yazabilirsiniz."
-            )}
-        ]
+# =============================================================================
+# EXCEL OKUMA
+# =============================================================================
+def _rapor(rep, tur, yer, mesaj):
+    rep.append({'Tür': tur, 'Yer': yer or '', 'Açıklama': mesaj})
 
-    selected_firm_context = None
-    if not firms.empty:
-        c_sel, c_info = st.columns([1, 2])
-        with c_sel:
-            chat_fid = st.selectbox("Danışmanlık Alınacak Firma:", firms['ID'], format_func=lambda x: f"Firma {x}", key="chat_firm_selector")
-            selected_firm_context = firms.set_index('ID').loc[chat_fid].to_dict()
-        with c_info:
-            st.success(f"📌 **Aktif Firma:** Firma {chat_fid} | **Strateji:** {model.labels[selected_firm_context['Kazanan']]} | **Ölçek:** {selected_firm_context['Ölçek']}")
 
-    st.markdown("**Hızlı Soru Başlıkları:**")
-    qc1, qc2, qc3, qc4 = st.columns(4)
-    quick_query = None
-    if qc1.button("⚖️ SKDM ve Karbon Vergisi", use_container_width=True):
-        quick_query = "SKDM ve Avrupa karbon vergisine nasıl hazırlanmalıyız?"
-    if qc2.button("💰 Hibe ve KOSGEB Teşvikleri", use_container_width=True):
-        quick_query = "Hangi yeşil dönüşüm teşvik ve hibelerinden yararlanabiliriz?"
-    if qc3.button("♻️ Döngüsel Ekonomi & Atık", use_container_width=True):
-        quick_query = "Plastik ve hammadde atıklarımızı nasıl döngüsel ekonomiye kazandırabiliriz?"
-    if qc4.button("⚡ Çatı GES ve Enerji Tasarrufu", use_container_width=True):
-        quick_query = "Fabrika çatı GES ve ISO 50001 enerji verimliliği süreci nasıl işler?"
+def _header_row(raw, lookup, min_hits, max_rows=20):
+    best, hits = None, 0
+    for r in range(min(max_rows, raw.shape[0])):
+        h = len({lookup[norm(v)] for v in raw.iloc[r] if norm(v) in lookup})
+        if h > hits:
+            best, hits = r, h
+    return (best, hits) if best is not None and hits >= min_hits else (None, hits)
 
-    for msg in st.session_state.chat_messages:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
 
-    prompt_input = st.chat_input("Sorunuzu yazın (Örn: İhracat yaparken karbon vergisinden nasıl muaf olurum?)...")
-    active_prompt = quick_query if quick_query else prompt_input
+FIELD_ALIASES = {
+    'code': ['kriter kodu', 'criterion code', 'criteria code'],
+    'header': ['anket başlığı', 'anket basligi', 'kriter başlığı', 'survey header'],
+    'cl_code': ['küme kodu', 'kume kodu', 'cluster code', 'cluster_code', 'ana başlık kodu'],
+    'cl_header': [],
+}
+_FIELD_KEYS = {norm(a): k for k, v in FIELD_ALIASES.items() for a in v}
+INFO_LABELS = {
+    'id': ['firma adı', 'firma adi', 'firma', 'firma id', 'company', 'company id', 'company name'],
+    'scale': ['ölçek', 'olcek', 'firma ölçeği', 'company size', 'size'],
+    'sector': ['sektör', 'sektor', 'sector'],
+    'motivation': ['motivasyon', 'motivation'],
+}
+_INFO_KEYS = {norm(a): k for k, v in INFO_LABELS.items() for a in v}
 
-    if active_prompt:
-        st.session_state.chat_messages.append({"role": "user", "content": active_prompt})
-        with st.chat_message("user"):
-            st.markdown(active_prompt)
 
-        cevap = m.advanced_green_consultant_reply(active_prompt, selected_firm_context, model)
+def _blank(v):
+    return v is None or (isinstance(v, float) and np.isnan(v)) or not str(v).strip()
 
-        with st.chat_message("assistant"):
-            st.markdown(cevap)
-        st.session_state.chat_messages.append({"role": "assistant", "content": cevap})
+
+def _lead_code(v):
+    if _blank(v):
+        return None
+    mt = re.match(r'^\s*([^\s(:]+)', str(v))
+    return norm_id(mt.group(1)) if mt else None
+
+
+def _field_key(v):
+    n = norm(v)
+    if not n:
+        return None
+    if n in _FIELD_KEYS:
+        return _FIELD_KEYS[n]
+    if n.startswith('puan') or n == 'score':
+        return 'score'
+    if 'agirlik' in n or 'ağirlik' in n or 'weight' in n:
+        return 'weight'
+    return None
+
+
+def parse_single_firm_sheet(model, raw, rep):
+    for r in range(min(15, raw.shape[0])):
+        keys = [_field_key(raw.iat[r, j]) for j in range(raw.shape[1])]
+        if 'cl_code' not in keys or 'score' not in keys or 'weight' not in keys:
+            continue
+        score_c = keys.index('score')
+        code_c = next((j for j in range(score_c) if keys[j] in ('code', 'header')), None)
+        cl_c = next((j for j in range(score_c + 1, len(keys)) if keys[j] == 'cl_code'), None)
+        weight_c = next((j for j in range((cl_c or len(keys)) + 1, len(keys)) if keys[j] == 'weight'), None)
+        if code_c is None or cl_c is None or weight_c is None:
+            continue
+        head_c = next((j for j in range(code_c + 1, score_c) if keys[j] == 'header'), None)
+        clhead_c = next((j for j in range(cl_c + 1, weight_c) if keys[j] == 'header'), None)
+
+        def resolve(row, cand_cols):
+            for c in cand_cols:
+                if c is None:
+                    continue
+                v = raw.iat[row, c]
+                for key in (_lead_code(v), v):
+                    if not _blank(key) and norm(key) in model.lookup:
+                        return model.lookup[norm(key)]
+            return None
+
+        values, unknown = {}, []
+        for block, cols, val_c in (('kriter', (code_c, head_c), score_c), ('küme', (cl_c, clhead_c), weight_c)):
+            started = False
+            for rr in range(r + 1, raw.shape[0]):
+                if _blank(raw.iat[rr, cols[0]]):
+                    if started:
+                        break
+                    continue
+                started = True
+                code = resolve(rr, cols)
+                if code is None:
+                    unknown.append(str(raw.iat[rr, cols[0]]).strip())
+                    continue
+                if (block == 'kriter') != (code in model.codes):
+                    unknown.append(str(raw.iat[rr, cols[0]]).strip())
+                    continue
+                values.setdefault(code, to_number(raw.iat[rr, val_c]))
+        if unknown:
+            _rapor(rep, 'Format', None, "Modelde karşılığı olmayan satırlar okunmadı: " + ', '.join(unknown))
+        info = {}
+        for rr in range(raw.shape[0]):
+            if rr == r:
+                continue
+            for j in range(raw.shape[1] - 1):
+                key = _INFO_KEYS.get(norm(raw.iat[rr, j]))
+                if key and key not in info and not _blank(raw.iat[rr, j + 1]):
+                    info[key] = raw.iat[rr, j + 1]
+        fid = norm_id(info.get('id')) or '1'
+        survey = pd.DataFrame([{k: values.get(k, np.nan) for k in model.needed}], index=pd.Index([fid], name='ID'))
+        demo = pd.DataFrame([{'Scale': info.get('scale'), 'Sector': info.get('sector'), 'Motivation': info.get('motivation')}],
+                            index=pd.Index([fid], name='ID'))
+        return survey, demo
+    return None
+
+
+def parse_survey_sheet(model, raw, rep):
+    best, hits = _header_row(raw, model.lookup, max(1, (len(model.needed) + 1) // 2))
+    if best is None:
+        return None
+    blocks, cur, seen = [], None, set()
+    for j, v in enumerate(raw.iloc[best]):
+        n = norm(v)
+        if n == 'id':
+            cur = {'id': j, 'cols': {}}
+            blocks.append(cur)
+        elif n in model.lookup:
+            code = model.lookup[n]
+            if code in seen:
+                _rapor(rep, 'Format', None, f"'{v}' başlığı birden fazla sütunda var; ilk sütun kullanıldı.")
+                continue
+            if cur is None:
+                cur = {'id': None, 'cols': {}}
+                blocks.append(cur)
+            cur['cols'][code] = j
+            seen.add(code)
+    missing = [k for k in model.needed if k not in seen]
+    if missing:
+        _rapor(rep, 'Format', None, "Ankette bulunamayan başlıklar: " + ', '.join(model.header_of[k] for k in missing))
+    first_id = next((b['id'] for b in blocks if b['id'] is not None), None)
+    if first_id is None:
+        _rapor(rep, 'Format', None, "ID sütunu bulunamadı; satır sırası firma numarası olarak kullanıldı.")
+    parts = []
+    for b in blocks:
+        if not b['cols']:
+            continue
+        idc = b['id'] if b['id'] is not None else first_id
+        rows = {}
+        for i, (_, row) in enumerate(raw.iloc[best + 1:].iterrows()):
+            vals = {k: to_number(row.iloc[j]) for k, j in b['cols'].items()}
+            if all(np.isnan(x) for x in vals.values()):
+                continue
+            fid = norm_id(row.iloc[idc]) if idc is not None else str(i + 1)
+            if fid is None:
+                continue
+            if fid in rows:
+                _rapor(rep, 'Veri', f"Firma {fid}", "Aynı ID iki kez geçiyor; ilk satır kullanıldı.")
+                continue
+            rows[fid] = vals
+        parts.append(pd.DataFrame.from_dict(rows, orient='index', columns=list(b['cols'])))
+    if not parts or not any(len(p) for p in parts):
+        return None
+    all_ids = set().union(*[set(p.index) for p in parts])
+    for fid in sorted(all_ids, key=id_key):
+        miss = sum(1 for p in parts if fid not in p.index)
+        if miss:
+            _rapor(rep, 'Veri', f"Firma {fid}", f"{len(parts)} puan bloğunun {miss} tanesinde yok.")
+    df = parts[0]
+    for p in parts[1:]:
+        df = df.join(p, how='outer')
+    for k in model.needed:
+        if k not in df.columns:
+            df[k] = np.nan
+    return df[model.needed]
+
+
+def parse_demo_sheet(raw):
+    alias = {k: {norm(a) for a in v} for k, v in DEMO_ALIASES.items()}
+    for r in range(min(10, raw.shape[0])):
+        cols = {}
+        for j, v in enumerate(raw.iloc[r]):
+            n = norm(v)
+            for key in ('scale', 'sector', 'motivation', 'id'):
+                if key not in cols and n in alias[key]:
+                    cols[key] = j
+                    break
+        if 'id' in cols and ('scale' in cols or 'sector' in cols or 'motivation' in cols):
+            out = []
+            for _, row in raw.iloc[r + 1:].iterrows():
+                fid = norm_id(row.iloc[cols['id']])
+                if fid is not None:
+                    out.append({'ID': fid, **{name: (row.iloc[cols[key]] if key in cols else None)
+                                              for key, name in (('scale', 'Scale'), ('sector', 'Sector'), ('motivation', 'Motivation'))}})
+            if out:
+                return pd.DataFrame(out).drop_duplicates('ID').set_index('ID')
+    return None
+
+
+def read_workbook(content, model=None, kind=None):
+    rep, info = [], {}
+    model = model or default_model()
+    try:
+        xls = pd.ExcelFile(io.BytesIO(content))
+    except Exception:
+        raise ValueError("Dosya Excel olarak açılamadı. .xlsx biçiminde bir dosya yükleyin.")
+    sheets = [(sh, pd.read_excel(xls, sheet_name=sh, header=None)) for sh in xls.sheet_names]
+    survey = demo = None
+    if kind in (None, 'coklu'):
+        for sh, raw in sheets:
+            if raw.empty:
+                continue
+            if survey is None:
+                s_ = parse_survey_sheet(model, raw, rep)
+                if s_ is not None:
+                    survey, info['puan_sayfasi'] = s_, sh
+                    continue
+            if demo is None:
+                d = parse_demo_sheet(raw)
+                if d is not None:
+                    demo, info['demografi_sayfasi'] = d, sh
+    if survey is None and kind in (None, 'tek'):
+        for sh, raw in sheets:
+            if raw.empty:
+                continue
+            single = parse_single_firm_sheet(model, raw, rep)
+            if single is not None:
+                survey, demo = single
+                info['puan_sayfasi'] = info['demografi_sayfasi'] = f"{sh} (tek firma)"
+                break
+    if survey is None:
+        if kind == 'tek':
+            raise ValueError("Tek firma sayfası bulunamadı. Tek firma şablonunu indirip onun düzenini kullanın.")
+        ornek = ', '.join(list(model.header_of.values())[:3])
+        raise ValueError(f"Puan sayfası bulunamadı. Başlık satırında anket başlıkları (örneğin {ornek}) ve bir ID sütunu olmalı. "
+                         "Çoklu firma şablonunu indirip onun düzenini kullanabilirsiniz.")
+    if demo is None:
+        _rapor(rep, 'Format', None, "Firma bilgileri sayfası (ID ile ölçek, sektör ya da motivasyon sütunu) bulunamadı.")
+        demo = pd.DataFrame(columns=['Scale', 'Sector', 'Motivation'])
+    vals = survey.values[~np.isnan(survey.values.astype(float))]
+    if len(vals) and vals.max() <= model.scale_max / 2 + 0.5 and model.scale_max >= 7:
+        _rapor(rep, 'Uyarı', None, f"Puanların hepsi {vals.max():g} ve altında; anket 1 ile {vals.max():g} ölçeğinde olabilir. Ölçek ayarını kontrol edin.")
+    return model, survey, demo, rep, info
+
+
+# =============================================================================
+# ANALİZ
+# =============================================================================
+def _text(v):
+    return str(v).strip() if v is not None and not (isinstance(v, float) and np.isnan(v)) and str(v).strip() else None
+
+
+def analyze(model, survey, demo, rep=None, sentez=None, simulations=SIMULASYON_SAYISI):
+    sentez = sentez or SENTEZ
+    rep = list(rep or [])
+    other = 'durulastirilmis' if sentez == 'bulanik' else 'bulanik'
+    ids, R, C = [], [], []
+    for fid in sorted(survey.index, key=id_key):
+        row = survey.loc[fid]
+        eksik = [k for k in model.needed if pd.isna(row[k])]
+        if eksik:
+            _rapor(rep, 'Eksik puan', f"Firma {fid}", f"Analize alınmadı ({len(eksik)} boş hücre).")
+            continue
+        disi = [k for k in model.needed if not model.scale_min <= row[k] <= model.scale_max]
+        if disi:
+            _rapor(rep, 'Aralık dışı', f"Firma {fid}",
+                   f"Analize alınmadı: {model.scale_min:g} ile {model.scale_max:g} dışında {len(disi)} puan var.")
+            continue
+        ids.append(fid)
+        R.append(row[model.codes].values.astype(float))
+        C.append(row[model.cl_codes].values.astype(float))
+    for fid in sorted(survey.index.difference(demo.index), key=id_key):
+        _rapor(rep, 'Veri', f"Firma {fid}", "Demografi sayfasında yok; ölçeğe özel öneri verilmeyecek.")
+    base = {'model': model, 'sentez': sentez, 'other': other}
+    if not ids:
+        return {**base, 'firms': pd.DataFrame(), 'report': pd.DataFrame(rep, columns=['Tür', 'Yer', 'Açıklama'])}
+    R, C = np.array(R), np.array(C)
+    res = run_fanp(model, R, C, sentez)
+    res2 = run_fanp(model, R, C, other)
+    crs = consistency_ratios(model, R, C)
+    A = model.alt_codes
+
+    rows, wrows, crows = [], [], []
+    for i, fid in enumerate(ids):
+        net = res['net'][i]
+        share = net / net.sum()
+        order = np.argsort(-net, kind='stable')
+        win = A[order[0]]
+        probs = robustness(model, R[i], C[i], simulations, RASTGELE_TOHUM + i, sentez)
+        d = demo.loc[fid] if fid in demo.index else None
+        sraw = _text(d['Scale']) if d is not None and 'Scale' in d else None
+        scale = scale_of(sraw) if sraw else None
+        if sraw and scale is None:
+            _rapor(rep, 'Ölçek', f"Firma {fid}", f"Ölçek tanınamadı ('{sraw}'); ölçeğe özel öneri verilmedi.")
+        sec = _text(d['Sector']) if d is not None and 'Sector' in d else None
+        mot = _text(d['Motivation']) if d is not None and 'Motivation' in d else None
+        rec, ref = recommendation(model, win, scale)
+        rows.append({'ID': fid, 'Ölçek': scale or 'Bilinmiyor', 'Sektör': sec or 'Belirtilmemiş',
+                     'Kazanan': win, 'Strateji': model.labels[win],
+                     **{f'{a} payı (%)': float(share[j] * 100) for j, a in enumerate(A)},
+                     'İkinci': A[order[1]],
+                     'Fark (yüzde puan)': float((share[order[0]] - share[order[1]]) * 100),
+                     'Birincilik olasılığı (%)': float(probs[order[0]] * 100) if probs is not None else np.nan,
+                     **({f'{a} birincilik (%)': float(probs[j] * 100) for j, a in enumerate(A)} if probs is not None else {}),
+                     'Diğer yöntemle kazanan': A[int(res2['net'][i].argmax())],
+                     'En yüksek tutarlılık oranı': float(crs.iloc[i].max()),
+                     'Motivasyon': mot or 'Belirtilmemiş',
+                     'Stratejik yönlendirme': motivation_advice(model, win, mot),
+                     'Öneri': rec, 'Kaynak': ref})
+        wrows.append({'ID': fid, **{k: float(res['global'][i, j]) for j, k in enumerate(model.codes)}})
+        crows.append({'ID': fid, **{k: float(res['cluster'][i, j]) for j, k in enumerate(model.cl_codes)}})
+
+    gR, gC = np.exp(np.log(R).mean(0)), np.exp(np.log(C).mean(0))
+    gres = run_fanp(model, gR, gC, sentez)
+    gprob = robustness(model, gR, gC, simulations, RASTGELE_TOHUM, sentez)
+    gnet = gres['net'][0]
+    group = pd.DataFrame({'Kod': A, 'Strateji': [model.labels[a] for a in A], 'Pay (%)': gnet / gnet.sum() * 100,
+                          'Birincilik olasılığı (%)': gprob * 100 if gprob is not None else np.nan})
+    group_weights = pd.DataFrame({'Kod': model.codes, 'Anket başlığı': [c[1] for c in model.criteria],
+                                  'Kriter': [c[2] for c in model.criteria],
+                                  'Küme': [model.clusters[k][1] for k in model.cl_of],
+                                  'Global ağırlık': gres['global'][0]})
+    return {**base, 'firms': pd.DataFrame(rows), 'weights': pd.DataFrame(wrows), 'cluster_weights': pd.DataFrame(crows),
+            'group': group, 'group_weights': group_weights, 'group_cluster': gres['cluster'][0],
+            'report': pd.DataFrame(rep, columns=['Tür', 'Yer', 'Açıklama'])}
+
+
+# =============================================================================
+# ÇIKTI TABLOLARI
+# =============================================================================
+def _style_header(cells):
+    from openpyxl.styles import Alignment, Font, PatternFill
+    for c in cells:
+        c.font = Font(bold=True)
+        c.fill = PatternFill('solid', fgColor='DDE7DF')
+        c.alignment = Alignment(wrap_text=True, vertical='center')
+
+
+def _score_validation(ws, model, ref):
+    from openpyxl.worksheet.datavalidation import DataValidation
+    dv = DataValidation(type='decimal', operator='between', formula1=f"{model.scale_min:g}", formula2=f"{model.scale_max:g}",
+                        allow_blank=True, showErrorMessage=True, errorTitle='Geçersiz puan',
+                        error=f"Puan {model.scale_min:g} ile {model.scale_max:g} arasında olmalı.")
+    ws.add_data_validation(dv)
+    dv.add(ref)
+
+
+def _scale_validation(ws, ref):
+    from openpyxl.worksheet.datavalidation import DataValidation
+    dv = DataValidation(type='list', formula1='"Mikro,Küçük,Orta,Büyük"', allow_blank=True)
+    ws.add_data_validation(dv)
+    dv.add(ref)
+
+
+def single_firm_template_excel(model):
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Firma'
+    lo, hi = f"{model.scale_min:g}", f"{model.scale_max:g}"
+    crit_h = ['Kriter Kodu', 'Kriter Adı', 'Anket Başlığı', 'Küme Kodu', f'Puan ({lo}-{hi})']
+    clus_h = ['Küme Kodu', 'Küme Adı', 'Anket Başlığı', f'Ağırlık Puanı ({lo}-{hi})']
+    c2 = len(crit_h) + 2
+    ws.cell(row=1, column=1, value='KRİTERLER VE İHTİYAÇ PUANLARI').font = Font(bold=True)
+    ws.cell(row=1, column=c2, value='ANA BAŞLIKLAR VE AĞIRLIK PUANLARI').font = Font(bold=True)
+    for k, h in enumerate(crit_h):
+        ws.cell(row=2, column=1 + k, value=h)
+    for k, h in enumerate(clus_h):
+        ws.cell(row=2, column=c2 + k, value=h)
+    _style_header([ws.cell(row=2, column=c) for c in list(range(1, len(crit_h) + 1)) + list(range(c2, c2 + len(clus_h)))])
+    for i, (code, header, name, clc) in enumerate(model.criteria):
+        for k, v in enumerate([code, name, header, clc]):
+            ws.cell(row=3 + i, column=1 + k, value=v)
+    for k, (code, name, header) in enumerate(model.clusters):
+        for q, v in enumerate([code, name, header]):
+            ws.cell(row=3 + k, column=c2 + q, value=v)
+    score_col = ws.cell(row=2, column=5).column_letter
+    weight_col = ws.cell(row=2, column=c2 + 3).column_letter
+    _score_validation(ws, model, f"{score_col}3:{score_col}{2 + len(model.criteria)}")
+    _score_validation(ws, model, f"{weight_col}3:{weight_col}{2 + len(model.clusters)}")
+
+    fr = 3 + len(model.clusters) + 2
+    ws.cell(row=fr, column=c2, value='FİRMA BİLGİLERİ').font = Font(bold=True)
+    for q, lab in enumerate(['Firma adı', 'Ölçek', 'Sektör', 'Motivasyon']):
+        ws.cell(row=fr + 1 + q, column=c2, value=lab)
+    val_col = ws.cell(row=1, column=c2 + 1).column_letter
+    _scale_validation(ws, f"{val_col}{fr + 2}")
+    nr = fr + 6
+    ws.cell(row=nr, column=c2, value='AÇIKLAMA').font = Font(bold=True)
+    ws.cell(row=nr + 1, column=c2, value=f"Puanlar ihtiyaç düzeyidir: {lo} yeterli yetkinlik ve asgari ihtiyaç, {hi} kritik eksiklik.")
+    ws.cell(row=nr + 2, column=c2, value="Ağırlık puanı, ana başlığın firma için diğer başlıklara göre önemidir.")
+    ws.cell(row=nr + 3, column=c2, value="Sadece Puan, Ağırlık Puanı ve firma bilgileri doldurulur; kod ve başlık sütunları değiştirilmemelidir.")
+    for col, w in {'A': 11, 'B': 32, 'C': 16, 'D': 10, 'E': 11}.items():
+        ws.column_dimensions[col].width = w
+    for k, w in enumerate([12, 22, 14, 13]):
+        ws.column_dimensions[ws.cell(row=1, column=c2 + k).column_letter].width = w
+    ws.row_dimensions[2].height = 32
+    ws.freeze_panes = 'A3'
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def multi_firm_template_excel(model, n_rows=30):
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+    wb = Workbook()
+    info = wb.active
+    info.title = 'Açıklama'
+    lo, hi = f"{model.scale_min:g}", f"{model.scale_max:g}"
+    lines = ["ÇOKLU FİRMA ŞABLONU",
+             "1. 'Firmalar' sayfasında her firma için ölçek, sektör ve motivasyon girin.",
+             "2. 'Puanlar' sayfasında aynı ID satırına kriter ihtiyaç puanlarını ve ana başlık ağırlık puanlarını girin.",
+             f"3. Puanlar {lo} ile {hi} arasındadır: {lo} yeterli yetkinlik ve asgari ihtiyaç, {hi} kritik eksiklik.",
+             "4. Boş bırakılan satırlar okunmaz; eksik puanı olan firma analize alınmaz ve veri raporunda gösterilir.",
+             "5. Başlık satırları değiştirilmemelidir. Firma sayısı için satır ekleyebilirsiniz.", "",
+             "KRİTERLER"]
+    for i, t in enumerate(lines):
+        info.cell(row=1 + i, column=1, value=t).font = Font(bold=(i in (0, len(lines) - 1)))
+    r0 = len(lines) + 1
+    for k, h in enumerate(['Küme', 'Kriter Kodu', 'Kriter Adı', 'Anket Başlığı']):
+        info.cell(row=r0, column=1 + k, value=h)
+    _style_header([info.cell(row=r0, column=c) for c in range(1, 5)])
+    for i, (code, header, name, clc) in enumerate(model.criteria):
+        for k, v in enumerate([model.clusters[model.cl_codes.index(clc)][1], code, name, header]):
+            info.cell(row=r0 + 1 + i, column=1 + k, value=v)
+    for col, w in {'A': 20, 'B': 12, 'C': 34, 'D': 18}.items():
+        info.column_dimensions[col].width = w
+
+    firms = wb.create_sheet('Firmalar')
+    for k, h in enumerate(['Firma ID', 'Ölçek', 'Sektör', 'Motivasyon']):
+        firms.cell(row=1, column=1 + k, value=h)
+    _style_header([firms.cell(row=1, column=c) for c in range(1, 5)])
+    for i in range(n_rows):
+        firms.cell(row=2 + i, column=1, value=i + 1)
+    _scale_validation(firms, f"B2:B{1 + n_rows}")
+    for col, w in {'A': 10, 'B': 12, 'C': 18, 'D': 28}.items():
+        firms.column_dimensions[col].width = w
+
+    sc = wb.create_sheet('Puanlar')
+    sc.cell(row=2, column=1, value='ID')
+    col = 2
+    blocks = [(f"{name.upper()} ({code})", [model.criteria[i][1] for i in model.members[k]])
+              for k, (code, name, _) in enumerate(model.clusters)]
+    blocks.append(('ANA BAŞLIK AĞIRLIKLARI', [c[2] for c in model.clusters]))
+    score_ranges, header_cells = [], [sc.cell(row=2, column=1)]
+    for title, headers in blocks:
+        sc.cell(row=1, column=col, value=title).font = Font(bold=True)
+        if len(headers) > 1:
+            sc.merge_cells(start_row=1, start_column=col, end_row=1, end_column=col + len(headers) - 1)
+        for k, h in enumerate(headers):
+            header_cells.append(sc.cell(row=2, column=col + k, value=h))
+            sc.column_dimensions[sc.cell(row=2, column=col + k).column_letter].width = 13
+        first = sc.cell(row=3, column=col).column_letter
+        last = sc.cell(row=3, column=col + len(headers) - 1).column_letter
+        score_ranges.append(f"{first}3:{last}{2 + n_rows}")
+        sc.column_dimensions[sc.cell(row=2, column=col + len(headers)).column_letter].width = 3
+        col += len(headers) + 1
+    _style_header(header_cells)
+    for ref in score_ranges:
+        _score_validation(sc, model, ref)
+    for i in range(n_rows):
+        sc.cell(row=3 + i, column=1, value=i + 1)
+    sc.column_dimensions['A'].width = 6
+    sc.row_dimensions[2].height = 32
+    sc.freeze_panes = 'B3'
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def scale_matrix(model):
+    scales = ['Mikro', 'Küçük', 'Orta', 'Büyük']
+    return pd.DataFrame([{'Strateji': model.labels[a],
+                          **{sc: ' '.join(x for x in recommendation(model, a, sc) if x) for sc in scales}}
+                         for a in model.alt_codes])
+
+
+def results_excel(result):
+    model = result['model']
+    firms = result['firms'].copy()
+    for col in firms.columns:
+        if firms[col].dtype.kind == 'f':
+            firms[col] = firms[col].round(4)
+    firms = firms.rename(columns={'Diğer yöntemle kazanan':
+                                  f"Kazanan ({'tezdeki' if result['other'] == 'bulanik' else 'durulaştırılmış sentez'} yöntemi)"})
+    weights = result['weights'].rename(columns={c[0]: f"{c[0]} {c[1]}" for c in model.criteria})
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine='openpyxl') as xw:
+        firms.to_excel(xw, sheet_name='Firma Sonuçları', index=False)
+        result['group'].round(4).to_excel(xw, sheet_name='Sektör Geneli', index=False)
+        result['group_weights'].round(6).to_excel(xw, sheet_name='Sektör Global Ağırlıkları', index=False)
+        weights.round(6).to_excel(xw, sheet_name='Firma Global Ağırlıkları', index=False)
+        validity_test(model).to_excel(xw, sheet_name='Yöntem Geçerlilik Testi', index=False)
+        scale_matrix(model).to_excel(xw, sheet_name='Strateji ve Ölçek Matrisi', index=False)
+        (result['report'] if len(result['report']) else pd.DataFrame([{'Tür': '', 'Yer': '', 'Açıklama': 'Sorun bulunmadı'}])) \
+            .to_excel(xw, sheet_name='Veri Raporu', index=False)
+    return buf.getvalue()
