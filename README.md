@@ -68,16 +68,19 @@ Demografi sayfasında `Company ID` ve `Company Size` sütunları, isteğe bağl�
 
 ## Yöntem
 
-1. Her puan üçgen bulanık sayıya çevrilir: p için (p−g, p, p+g), ölçek sınırlarında kırpılır (g: bulanıklık genişliği).
-2. Aynı kümedeki kriterlerden bulanık ikili karşılaştırma matrisi kurulur: l = lᵢ/uⱼ, m = mᵢ/mⱼ, u = uᵢ/lⱼ.
-3. Bulanık normalizasyon ve satır ortalamasıyla yerel öncelikler ve küme öncelikleri bulunur.
-4. Uzman alternatif x kriter matrisi bulanık olarak normalize edilir.
-5. Öncelikler (l + 2m + u) / 4 ile durulaştırılıp yeniden normalize edilir.
-6. Süpermatris kurulur; limit süpermatristeki alternatif öncelikleri strateji puanıdır.
-7. Sektör geneli için tüm firmaların puanlarının geometrik ortalaması aynı modelden geçirilir.
-8. Sağlamlık analizinde her puan kendi bulanık aralığından örneklenir ve kazananın birinci kalma oranı ölçülür.
+Anket puanları ihtiyaç düzeyini gösterir: 1 yeterli yetkinlik ve asgari ihtiyaç, 9 kritik eksiklik ve azami destek ihtiyacıdır.
 
-Uygulamada karşılaştırma için l, m ve u bileşenlerini sona kadar ayrı taşıyan yöntem de seçilebilir. "Yöntem ve kaynakça" sekmesindeki geçerlilik testi iki yöntemin farkını gösterir.
+1. Her puan üçgen bulanık sayıya çevrilir: l = max(1, x−1), m = x, u = min(9, x+1).
+2. Aynı kümedeki kriterlerden bulanık ikili karşılaştırma matrisi türetilir: ã_ij = (l_i/u_j, m_i/m_j, u_i/l_j), köşegen (1, 1, 1).
+3. Bulanık toplamsal normalizasyonla (sütun toplamına bölme ve satır ortalaması) 25 alt kriterin yerel öncelikleri ve 5 ana başlığın öncelikleri bulunur. Her matris için tutarlılık oranı (CR < 0,10) hesaplanır.
+4. Global ağırlık = ana başlık ağırlığı ⊗ yerel ağırlık.
+5. Uzmanların, her stratejinin kriterdeki ihtiyacı karşılama puanları bulanık olarak normalize edilir.
+6. Süpermatris kurulur (amaç, kriterler, stratejiler); limit süpermatristeki strateji öncelikleri bulanık skorlardır.
+7. Net skor, toplam integral değer yöntemiyle (λ = 0,5) bulunur: (l + 2m + u) / 4. En yüksek net skor en uygun stratejidir.
+8. Sektör geneli için tüm firmaların puanlarının geometrik ortalaması aynı modelden geçirilir.
+9. Sağlamlık analizinde her puan kendi bulanık aralığından örneklenir ve kazananın birinci kalma oranı ölçülür.
+
+Uygulamada karşılaştırma için, öncelikleri süpermatristen önce durulaştırıp normalize eden yöntem de seçilebilir. "Yöntem ve kaynakça" sekmesindeki geçerlilik testi iki yöntemin farkını gösterir.
 
 ## Doğrulama
 

@@ -32,7 +32,7 @@ def _exercise(at):
     at.sidebar.button[0].click().run()
     assert not at.exception, at.exception
     assert not at.error, [e.value for e in at.error]
-    at.sidebar.radio[0].set_value("Taslak Excel yöntemi (karşılaştırma)").run()
+    at.sidebar.radio[0].set_value("Durulaştırılmış sentez (karşılaştırma)").run()
     assert not at.exception, at.exception
     at.selectbox[1].set_value(at.selectbox[1].options[-1]).run()
     assert not at.exception, at.exception

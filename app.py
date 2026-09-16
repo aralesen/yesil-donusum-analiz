@@ -19,8 +19,8 @@ import fanp_motor as m
 st.set_page_config(page_title="Yeşil Dönüşüm Analiz Aracı", page_icon="🌱", layout="wide", initial_sidebar_state="expanded")
 
 ORNEK = Path(__file__).parent / "ornek_anket.xlsx"
-YONTEMLER = {"Önerilen (durulaştırılmış sentez)": "durulastirilmis",
-             "Taslak Excel yöntemi (karşılaştırma)": "excel"}
+YONTEMLER = {"Tezdeki yöntem (bulanık sentez)": "bulanik",
+             "Durulaştırılmış sentez (karşılaştırma)": "durulastirilmis"}
 OLCEKLER = {"Modeldeki ölçek": None, "1 ile 5": (1, 5), "1 ile 7": (1, 7), "1 ile 9": (1, 9), "1 ile 10": (1, 10)}
 SCALE_ORDER = ['Mikro', 'Küçük', 'Orta', 'Büyük', 'Bilinmiyor']
 
@@ -102,8 +102,8 @@ with st.sidebar:
 
     st.header("Ayarlar")
     sentez = YONTEMLER[st.radio("Sentez yöntemi", list(YONTEMLER), index=0,
-                                help="Önerilen yöntem öncelikleri durulaştırıp normalize ettikten sonra süpermatrise sokar. "
-                                     "Taslak yöntem l, m, u değerlerini sonuna kadar ayrı taşır.")]
+                                help="Tezdeki yöntem l, m, u değerlerini sona kadar taşır ve net skoru (l + 2m + u) / 4 ile bulur. "
+                                     "Karşılaştırma yöntemi öncelikleri önce durulaştırıp normalize eder.")]
     olcek = OLCEKLER[st.selectbox("Puan ölçeği", list(OLCEKLER), index=0,
                                   help="Anket farklı bir ölçekle toplandıysa buradan seçin. Uzman matrisi de bu ölçekte olmalı.")]
     sim = st.select_slider("Sağlamlık analizi (simülasyon sayısı)", options=[0, 250, 500, 1000, 2000], value=1000,
@@ -171,7 +171,7 @@ with st.sidebar:
     st.caption(f"{st.session_state['name']}: {res['n_input']} firmadan {len(firms)} tanesi analiz edildi. "
                f"Model: {model.source}.")
 
-other_label = "taslak Excel yöntemi" if res['other'] == 'excel' else "önerilen yöntem"
+other_label = "tezdeki yöntem" if res['other'] == 'bulanik' else "durulaştırılmış sentez"
 share_cols = [f'{a} payı (%)' for a in A]
 tabs = st.tabs(["Genel bakış", "Firmalar", "Yol haritası", "Firma ayrıntısı", "Strateji ve ölçek matrisi",
                 "Yöntem ve kaynakça", f"Veri raporu ({len(report)})"])
@@ -308,12 +308,14 @@ with tabs[3]:
     a.metric("Strateji payı", tr_pct(f[f'{f["Kazanan"]} payı (%)']))
     b.metric("İkinciye fark", tr_num(f['Fark (yüzde puan)']) + " puan", model.names[f['İkinci']], delta_color="off", delta_arrow="off")
     c.metric("Birincilik olasılığı", tr_pct(f['Birincilik olasılığı (%)'], 0))
+    notes = [f"En yüksek tutarlılık oranı {tr_num(f['En yüksek tutarlılık oranı'], 3)} (eşik 0,10)"]
     if f['Diğer yöntemle kazanan'] != f['Kazanan']:
-        st.caption(f"Not: {other_label} ile kazanan {model.names[f['Diğer yöntemle kazanan']]} olurdu.")
+        notes.append(f"{other_label} ile kazanan {model.names[f['Diğer yöntemle kazanan']]} olurdu")
+    st.caption(". ".join(notes) + ".")
 
     l, r = st.columns(2)
     with l:
-        st.subheader("Küme önem ağırlıkları")
+        st.subheader("Küme ihtiyaç ağırlıkları")
         cd = pd.DataFrame({'Küme': [c_[1] for c_ in model.clusters], 'Ağırlık (%)': cw[model.cl_codes].values * 100})
         st.altair_chart(alt.Chart(cd).mark_bar(color='#4F5E55', cornerRadiusEnd=3).encode(
             y=alt.Y('Küme:N', sort=None, title=None, axis=alt.Axis(labelLimit=260)), x=alt.X('Ağırlık (%):Q'),
@@ -355,24 +357,25 @@ with tabs[5]:
     st.subheader("Hesap adımları")
     sp = f"{model.spread:g}".replace(".", ",")
     st.markdown(f"""
-1. Her puan ({model.scale_min:g} ile {model.scale_max:g}) üçgen bulanık sayıya çevrilir: p için (p−{sp}, p, p+{sp}), ölçek sınırlarında kırpılır.
+1. Puanlar ihtiyaç düzeyini gösterir: {model.scale_min:g} yeterli yetkinlik ve asgari ihtiyaç, {model.scale_max:g} kritik eksiklik ve azami destek ihtiyacıdır. Her puan üçgen bulanık sayıya çevrilir: p için (p−{sp}, p, p+{sp}), ölçek sınırlarında kırpılır.
 2. Aynı kümedeki kriterlerden bulanık ikili karşılaştırma matrisi kurulur: l = lᵢ/uⱼ, m = mᵢ/mⱼ, u = uᵢ/lⱼ.
-3. Bulanık normalizasyon (l/Σu, m/Σm, u/Σl) ve satır ortalamasıyla yerel öncelikler, aynı işlemle küme öncelikleri bulunur.
-4. Uzmanların strateji x kriter puanları bulanık olarak normalize edilir.
-5. {"Öncelikler (l + 2m + u) / 4 ile durulaştırılıp yeniden normalize edilir." if sentez == "durulastirilmis" else "l, m ve u bileşenleri sona kadar ayrı taşınır; net skor en sonda (l + 2m + u) / 4 ile bulunur."}
-6. Süpermatris kurulur (amaç, kriterler, stratejiler; stratejiler yutucu{", kriterler arası iç bağımlılık dahil" if model.dependence is not None else ""}) ve limit süpermatristeki strateji öncelikleri puan olur.
-7. Sektör geneli için tüm firmaların puanlarının geometrik ortalaması aynı modelden geçirilir.
-8. Sağlamlık: her puan kendi üçgen dağılımından {sim} kez örneklenir, kazananın birinci kalma oranı ölçülür.
+3. Bulanık toplamsal normalizasyon (l/Σu, m/Σm, u/Σl) ve satır ortalamasıyla yerel öncelikler, aynı işlemle ana başlık öncelikleri bulunur. Her matris için tutarlılık oranı (CR < 0,10) kontrol edilir.
+4. Global ağırlık = ana başlık ağırlığı ⊗ yerel ağırlık.
+5. Uzmanların, her stratejinin kriterdeki ihtiyacı karşılama puanları bulanık olarak normalize edilir.
+6. {"Öncelikler (l + 2m + u) / 4 ile durulaştırılıp yeniden normalize edilir (karşılaştırma yöntemi)." if sentez == "durulastirilmis" else "l, m ve u bileşenleri sona kadar ayrı taşınır."}
+7. Süpermatris kurulur (amaç, kriterler, stratejiler; stratejiler yutucu{", kriterler arası iç bağımlılık dahil" if model.dependence is not None else ""}) ve limit süpermatristeki strateji öncelikleri bulanık skor olur{"" if sentez == "durulastirilmis" else "; net skor (l + 2m + u) / 4 ile bulunur (toplam integral değer yöntemi, λ = 0,5)"}.
+8. Sektör geneli için tüm firmaların puanlarının geometrik ortalaması aynı modelden geçirilir.
+9. Sağlamlık: her puan kendi üçgen dağılımından {sim} kez örneklenir, kazananın birinci kalma oranı ölçülür.
 """)
     st.caption(f"Model: {model.source}. {len(model.cl_codes)} küme, {len(model.codes)} kriter, {len(A)} strateji.")
     st.subheader("Yöntem geçerlilik testi")
-    st.caption("Bir firma tek bir kümeyi belirleyici (ölçek üstü), geri kalan her şeyi önemsiz (ölçek altı) sayarsa, "
-               "uzman matrisinin o kümede en güçlü gördüğü strateji kazanmalıdır.")
+    st.caption("Bir firmanın ihtiyacı tek bir kümede kritik (ölçek üstü), geri kalan her yerde asgari (ölçek altı) ise "
+               "uzman tablosunun o kümede ihtiyacı en iyi karşıladığını söylediği strateji kazanmalıdır.")
     vt = m.validity_test(model)
     mark = lambda x, e: f"{model.names[x]} {'✓' if x == e else '✗'}"
     st.dataframe(pd.DataFrame({'Senaryo': vt['Senaryo'], 'Beklenen': vt['Beklenen'].map(model.names),
-                               'Önerilen yöntem': [mark(x, e) for x, e in zip(vt['Kazanan (durulastirilmis)'], vt['Beklenen'])],
-                               'Taslak Excel yöntemi': [mark(x, e) for x, e in zip(vt['Kazanan (excel)'], vt['Beklenen'])]}),
+                               'Tezdeki yöntem': [mark(x, e) for x, e in zip(vt['Kazanan (bulanik)'], vt['Beklenen'])],
+                               'Durulaştırılmış sentez': [mark(x, e) for x, e in zip(vt['Kazanan (durulastirilmis)'], vt['Beklenen'])]}),
                  hide_index=True, width="stretch")
     st.subheader("Model: kriterler ve uzman matrisi")
     st.dataframe(m.model_table(model), hide_index=True, width="stretch")

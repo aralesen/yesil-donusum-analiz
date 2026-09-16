@@ -166,7 +166,7 @@ def write_survey_excel(rng, model, R, C, ids, layout_seed):
 
 # ----------------------------------------------------------------------------- testler
 @pytest.mark.parametrize('seed', range(40))
-@pytest.mark.parametrize('sentez', ['durulastirilmis', 'excel'])
+@pytest.mark.parametrize('sentez', ['durulastirilmis', 'bulanik'])
 def test_bagimsiz_referansla_ayni(seed, sentez):
     rng = np.random.default_rng(seed)
     model = random_model(rng)
@@ -221,7 +221,7 @@ def test_baskin_strateji_geride_kalmaz(seed):
     mat[:, 0] = np.maximum(mat[:, 0], mat[:, 1])
     model = m.Model(model.clusters, model.criteria, model.alternatives, mat, model.scale_min, model.scale_max, model.spread)
     R, C = random_scores(rng, model, 10)
-    for sentez in ('durulastirilmis', 'excel'):
+    for sentez in ('durulastirilmis', 'bulanik'):
         net = m.run_fanp(model, R, C, sentez)['net']
         assert np.all(net[:, 0] >= net[:, 1] - 1e-12)
 
@@ -351,3 +351,14 @@ def test_tutarsiz_model_reddedilir(bad):
 def test_varsayilan_model_gecerlilik_testi():
     vt = m.validity_test(m.default_model())
     assert (vt['Kazanan (durulastirilmis)'] == vt['Beklenen']).all()
+
+
+@pytest.mark.parametrize('seed', range(10))
+def test_tutarlilik_orani(seed):
+    """Puanlardan oranla türetilen matrisler tanım gereği tutarlıdır: CR = 0."""
+    rng = np.random.default_rng(800 + seed)
+    model = random_model(rng)
+    R, C = random_scores(rng, model, 8)
+    crs = m.consistency_ratios(model, R, C)
+    assert crs.shape == (8, len(model.cl_codes) + 1)
+    assert np.all(np.abs(crs.values) < 1e-9)

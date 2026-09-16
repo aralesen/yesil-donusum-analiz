@@ -16,7 +16,7 @@ import re
 import numpy as np
 import pandas as pd
 
-SENTEZ = "durulastirilmis"        # "durulastirilmis" (önerilen) veya "excel"
+SENTEZ = "bulanik"               # "bulanik" (tezdeki yöntem) veya "durulastirilmis" (karşılaştırma)
 BAGIMLILIK_AGIRLIGI = 0.5         # iç bağımlılık varsa kriter sütunlarında ona ayrılan pay
 SIMULASYON_SAYISI = 1000
 RASTGELE_TOHUM = 42
@@ -44,7 +44,7 @@ STRATEGY_DESCRIPTIONS = {
     'A4': ('⚖️', 'SKDM (karbon vergisi), emisyon izinleri ve mevzuat uyumu.'),
 }
 # (kod, anket başlığı, Türkçe ad, [A1, A2, A3, A4] uzman puanı 1..9)
-# Alternatif puanları taslak modeldeki etiketlerine göre eşlendi (sağdaki not).
+# Uzman değerlendirmesi: stratejinin, kriterdeki ihtiyacı karşılama puanı (1 ile 9). Sağdaki not, uzman tablosundaki satır etiketidir.
 DEFAULT_CRITERIA = [
     ('C1.1', 'Inv. Cost',       'Yatırım maliyeti',               [2, 6, 6, 8]),  # Yatırım Mal.
     ('C1.2', 'Oper. Savings',   'Operasyonel tasarruf',           [7, 9, 4, 5]),  # İşletme Mal.
@@ -336,6 +336,31 @@ def fuzzy_priority(l, m, u):
     return (Al / su[:, None, :]).mean(2), (Am / sm[:, None, :]).mean(2), (Au / sl[:, None, :]).mean(2)
 
 
+RANDOM_INDEX = {1: 0.0, 2: 0.0, 3: 0.58, 4: 0.90, 5: 1.12, 6: 1.24, 7: 1.32, 8: 1.41, 9: 1.45, 10: 1.49,
+                11: 1.51, 12: 1.48, 13: 1.56, 14: 1.57, 15: 1.59}
+
+
+def consistency_ratios(model, ratings, cluster_scores):
+    """Saaty tutarlılık oranı (orta değer matrisi). Satır: firma, sütun: her küme ve ana başlık matrisi.
+    Puanlardan oranla türetilen matrisler tanım gereği tutarlıdır (CR = 0); kontrol tezdeki akışı belgeler
+    ve ileride doğrudan ikili karşılaştırma girilirse aynı işlevle çalışır."""
+    R = np.atleast_2d(np.asarray(ratings, float))
+    C = np.atleast_2d(np.asarray(cluster_scores, float))
+
+    def cr(x):
+        n = x.shape[1]
+        if n < 3:
+            return np.zeros(x.shape[0])
+        A = x[:, :, None] / x[:, None, :]
+        lam = np.max(np.real(np.linalg.eigvals(A)), axis=1)
+        ri = RANDOM_INDEX.get(n, 1.59)
+        return np.maximum((lam - n) / (n - 1) / ri, 0.0)
+
+    cols = {code: cr(R[:, model.members[k]]) for k, code in enumerate(model.cl_codes)}
+    cols['Ana başlıklar'] = cr(C)
+    return pd.DataFrame(cols)
+
+
 def defuzz(l, m, u):
     return (l + 2 * m + u) / 4
 
@@ -402,7 +427,7 @@ def run_fanp(model, ratings, cluster_scores, sentez=None, full_limit=False):
         cl = [cc / cc.sum(1, keepdims=True)] * 3
         altn = [ac / ac.sum(1, keepdims=True)] * 3
         comps = 1
-    elif sentez == 'excel':
+    elif sentez == 'bulanik':
         comps = 3
     else:
         raise ValueError(f"Bilinmeyen sentez yöntemi: {sentez}")
@@ -446,16 +471,16 @@ def robustness(model, ratings, cluster_scores, n=SIMULASYON_SAYISI, seed=RASTGEL
 
 
 def validity_test(model):
-    """Tek küme belirleyici (ölçek üstü), geri kalan her şey önemsiz (ölçek altı) iken
+    """Tek kümede ihtiyaç kritik (ölçek üstü), geri kalan her şeyde ihtiyaç asgari (ölçek altı) iken
     uzman matrisinin o kümede en güçlü gördüğü strateji kazanmalıdır."""
     lo, hi = model.scale_min, model.scale_max
     rows = []
     for k, (code, name, _) in enumerate(model.clusters):
         cs = np.full(len(model.cl_codes), lo); cs[k] = hi
         rr = np.where(model.cl_of == k, hi, lo)
-        row = {'Senaryo': f"Sadece {name} ({code}) önemli",
+        row = {'Senaryo': f"Sadece {name} ({code}) kümesinde kritik ihtiyaç",
                'Beklenen': model.alt_codes[int(model.alt_matrix[model.members[k]].mean(0).argmax())]}
-        for mode in ('durulastirilmis', 'excel'):
+        for mode in ('bulanik', 'durulastirilmis'):
             row[f'Kazanan ({mode})'] = model.alt_codes[int(run_fanp(model, rr, cs, mode)['net'][0].argmax())]
         rows.append(row)
     return pd.DataFrame(rows)
@@ -735,7 +760,7 @@ def _text(v):
 def analyze(model, survey, demo, rep=None, sentez=None, simulations=SIMULASYON_SAYISI):
     sentez = sentez or SENTEZ
     rep = list(rep or [])
-    other = 'excel' if sentez == 'durulastirilmis' else 'durulastirilmis'
+    other = 'durulastirilmis' if sentez == 'bulanik' else 'bulanik'
     ids, R, C = [], [], []
     for fid in sorted(survey.index, key=id_key):
         row = survey.loc[fid]
@@ -759,6 +784,7 @@ def analyze(model, survey, demo, rep=None, sentez=None, simulations=SIMULASYON_S
     R, C = np.array(R), np.array(C)
     res = run_fanp(model, R, C, sentez)
     res2 = run_fanp(model, R, C, other)
+    crs = consistency_ratios(model, R, C)
     A = model.alt_codes
 
     rows, wrows, crows = [], [], []
@@ -784,6 +810,7 @@ def analyze(model, survey, demo, rep=None, sentez=None, simulations=SIMULASYON_S
                      'Birincilik olasılığı (%)': float(probs[order[0]] * 100) if probs is not None else np.nan,
                      **({f'{a} birincilik (%)': float(probs[j] * 100) for j, a in enumerate(A)} if probs is not None else {}),
                      'Diğer yöntemle kazanan': A[int(res2['net'][i].argmax())],
+                     'En yüksek tutarlılık oranı': float(crs.iloc[i].max()),
                      'Motivasyon': mot or 'Belirtilmemiş',
                      'Stratejik yönlendirme': motivation_advice(model, win, mot),
                      'Öneri': rec, 'Kaynak': ref})
@@ -856,7 +883,7 @@ def results_excel(result):
         if firms[col].dtype.kind == 'f':
             firms[col] = firms[col].round(4)
     firms = firms.rename(columns={'Diğer yöntemle kazanan':
-                                  f"Kazanan ({'taslak Excel' if result['other'] == 'excel' else 'önerilen'} yöntemi)"})
+                                  f"Kazanan ({'tezdeki' if result['other'] == 'bulanik' else 'durulaştırılmış sentez'} yöntemi)"})
     weights = result['weights'].rename(columns={c[0]: f"{c[0]} {c[1]}" for c in model.criteria})
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine='openpyxl') as xw:
