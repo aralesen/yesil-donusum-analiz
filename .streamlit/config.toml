@@ -1,0 +1,12 @@
+[theme]
+base = "light"
+primaryColor = "#2B8A55"
+backgroundColor = "#EDF1EC"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#1E2B24"
+font = "sans serif"
+
+[server]
+maxUploadSize = 20
+aralesen@Aral-MacBook-Air ~ % 
+
