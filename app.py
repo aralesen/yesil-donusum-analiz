@@ -1,400 +1,396 @@
-import streamlit as st
-import pandas as pd
+# -*- coding: utf-8 -*-
+"""
+Yeşil Dönüşüm Karar Destek Sistemi (Bulanık ANP)
+Çalıştırma:  streamlit run app.py
+
+Arayüz modele göre kendini kurar: küme, kriter ve strateji sayısı ya da puan ölçeği
+değiştiğinde kodda değişiklik gerekmez.
+"""
+
+from pathlib import Path
+
+import altair as alt
 import numpy as np
-import io
-import matplotlib.pyplot as plt
-import seaborn as sns 
+import pandas as pd
+import streamlit as st
 
-# =============================================================================
-# 1. STREAMLIT SAYFA AYARLARI (DEFAULT)
-# =============================================================================
-st.set_page_config(
-    page_title="Yeşil Dönüşüm Analiz Aracı",
-    page_icon="🌱",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+import fanp_motor as m
 
-plt.rcParams['figure.dpi'] = 150
-plt.rcParams['font.family'] = 'sans-serif'
+st.set_page_config(page_title="Yeşil Dönüşüm Analiz Aracı", page_icon="🌱", layout="wide", initial_sidebar_state="expanded")
 
-# =============================================================================
-# 2. CSS (SADECE KARTLAR İÇİN)
-# =============================================================================
+ORNEK = Path(__file__).parent / "ornek_anket.xlsx"
+YONTEMLER = {"Önerilen (durulaştırılmış sentez)": "durulastirilmis",
+             "Taslak Excel yöntemi (karşılaştırma)": "excel"}
+OLCEKLER = {"Modeldeki ölçek": None, "1 ile 5": (1, 5), "1 ile 7": (1, 7), "1 ile 9": (1, 9), "1 ile 10": (1, 10)}
+SCALE_ORDER = ['Mikro', 'Küçük', 'Orta', 'Büyük', 'Bilinmiyor']
+
+
+def tr_pct(x, d=1):
+    if x is None or (isinstance(x, float) and np.isnan(x)):
+        return "hesaplanmadı"
+    return "%" + f"{x:.{d}f}".replace(".", ",")
+
+
+def tr_num(x, d=1):
+    return f"{x:.{d}f}".replace(".", ",")
+
+
 st.markdown("""
 <style>
-    .roadmap-card {
-        background-color: #ffffff;
-        border: 1px solid #e0e0e0;
-        border-radius: 10px;
-        padding: 20px;
-        margin-bottom: 20px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-        color: #333;
-        transition: transform 0.2s;
-    }
-    .roadmap-card:hover {
-        box-shadow: 0 8px 12px rgba(0,0,0,0.1);
-        transform: translateY(-2px);
-    }
-    .ref-link a {
-        text-decoration: none;
-        color: #007bff;
-        font-weight: bold;
-        font-size: 0.9em;
-    }
-    .ref-link a:hover {
-        text-decoration: underline;
-    }
+.block-container{padding-top:2.2rem; max-width:1200px}
+.verdict{font-size:2rem; font-weight:800; line-height:1.15; margin:.1rem 0 .6rem}
+.muted{color:#5B6A61}
+.rec{background:#E2E8E3; border-radius:10px; padding:14px 18px; margin-top:.4rem}
+.card{background:#fff; border:1px solid #D5DDD7; border-radius:10px; padding:16px 20px; margin-bottom:14px}
+.card-top{display:flex; flex-wrap:wrap; align-items:center; gap:12px; margin-bottom:10px}
+.card-id{font-size:1.3rem; font-weight:800}
+.pill{color:#fff; padding:2px 10px; border-radius:12px; font-size:.85rem; font-weight:700}
+.card h4{margin:.6rem 0 .2rem; font-size:.95rem}
+.card p{margin:0; color:#333}
 </style>
 """, unsafe_allow_html=True)
 
-# =============================================================================
-# 3. SABİTLER VE DATA
-# =============================================================================
-COLORS = {
-    'A1': '#007bff',   # Blue
-    'A2': '#28a745',   # Green
-    'A3': '#6f42c1',   # Purple
-    'A4': '#fd7e14',   # Orange
-}
 
-STRATEGY_DESCRIPTIONS = {
-    'A1': {'title': 'A1: Yeşil Üretim Teknolojileri', 'desc': 'Yapay Zeka, Dijital İkizler ve Düşük Karbonlu Makineler.', 'icon': '🤖'},
-    'A2': {'title': 'A2: Yeşil Tedarik ve Döngüsel Ekonomi', 'desc': 'Geri Dönüşüm, Atık Yönetimi ve Çevreci Lojistik.', 'icon': '♻️'},
-    'A3': {'title': 'A3: Yenilenebilir Enerji ve Yetkinlik', 'desc': 'Güneş/Rüzgar Enerjisi, ISO 50001 ve Yeşil İK Eğitimleri.', 'icon': '⚡'},
-    'A4': {'title': 'A4: Yasal Uyum ve Yönetişim', 'desc': 'SKDM (Karbon Vergisi), Emisyon İzinleri ve Mevzuat Uyumu.', 'icon': '⚖️'}
-}
+@st.cache_data(show_spinner=False)
+def model_yukle(model_bytes):
+    if model_bytes is None:
+        return m.default_model()
+    model = m.read_model(model_bytes)
+    if model is None:
+        raise m.ModelError("Model dosyasında MODEL sayfası bulunamadı. Soldaki şablonu indirip onun biçimini kullanın.")
+    return model
 
-STRATEGY_LABELS = {k: v['title'] for k, v in STRATEGY_DESCRIPTIONS.items()}
-STRAT_SHORT = {'A1': 'A1: Teknoloji', 'A2': 'A2: Döngüsel', 'A3': 'A3: Enerji/Sosyal', 'A4': 'A4: Yasal'}
 
-# REFERANSLAR
-REFERENCES_DB = {
-    '[REF-01]': {'text': 'Porter, M. E., & Heppelmann, J. E. (2015). How smart, connected products are transforming companies. *Harvard Business Review*.', 'link': 'https://hbr.org/2014/11/how-smart-connected-products-are-transforming-competition'},
-    '[REF-02]': {'text': 'Bressanelli, G., et al. (2018). The role of digital technologies to overcome Circular Economy challenges. *Intl. Journal of Production Research*.', 'link': 'https://doi.org/10.1080/00207543.2018.1427726'},
-    '[REF-03]': {'text': 'Geissdoerfer, M., et al. (2017). The Circular Economy – A new sustainability paradigm? *Journal of Cleaner Production*.', 'link': 'https://doi.org/10.1016/j.jclepro.2016.12.048'},
-    '[REF-04]': {'text': 'Ellen MacArthur Foundation. (2013). *Towards the Circular Economy*.', 'link': 'https://ellenmacarthurfoundation.org/towards-the-circular-economy-vol-1-an-economic-and-business-rationale-for-an'},
-    '[REF-05]': {'text': 'Renwick, D. W., et al. (2013). Green Human Resource Management. *Intl. Journal of Management Reviews*.', 'link': 'https://doi.org/10.1111/j.1468-2370.2011.00328.x'},
-    '[REF-06]': {'text': 'Sarkis, J., et al. (2010). Stakeholder pressure and the adoption of environmental practices. *Journal of Operations Management*.', 'link': 'https://doi.org/10.1016/j.jom.2009.10.001'},
-    '[REF-07]': {'text': 'European Commission. (2019). *The European Green Deal*.', 'link': 'https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=COM%3A2019%3A640%3AFIN'},
-    '[REF-08]': {'text': 'Schaltegger, S., & Burritt, R. (2014). Measuring and managing sustainability performance. *Supply Chain Management*.', 'link': 'https://doi.org/10.1108/SCM-02-2014-0061'},
-    '[REF-09]': {'text': 'GRI. (2021). *GRI Standards: Universal Standards*.', 'link': 'https://www.globalreporting.org/standards/'},
-    '[REF-10]': {'text': 'Testa, F., et al. (2014). EMAS and ISO 14001: the differences. *Journal of Cleaner Production*.', 'link': 'https://doi.org/10.1016/j.jclepro.2013.12.061'}
-}
+@st.cache_data(show_spinner=False)
+def hesapla(content, model_bytes, sentez, sim, olcek):
+    model = m.read_model(model_bytes) if model_bytes is not None else None
+    model, survey, demo, rep, info = m.read_workbook(content, model)
+    if olcek is not None:
+        model = model.with_scale(*olcek)
+    result = m.analyze(model, survey, demo, rep, sentez=sentez, simulations=sim)
+    result['info'] = info
+    result['n_input'] = len(survey)
+    return result
 
-# ÖNERİLER
-RECOMMENDATIONS_MAP = {
-    'A1': { 
-        'Micro': ("Bulut tabanlı, düşük maliyetli dijital izleme araçlarına geçiş yapın.", "[REF-01]"),
-        'Small': ("Enerji yoğun makinelere IoT sensörleri takarak anlık tüketimi izleyin.", "[REF-01]"),
-        'Medium': ("Üretim planlamasında yapay zeka (AI) destekli optimizasyon kullanın.", "[REF-02]"),
-        'Large': ("18. aydan itibaren tam entegrasyon için: Üretim hattının 'Dijital İkizi'ni (Digital Twin) oluşturun ve enerji/verimlilik senaryolarını Yapay Zeka (AI) algoritmalarıyla sanal ortamda simüle ederek optimize edin.", "[REF-02]")
-    },
-    'A2': { 
-        'Micro': ("Atıkları kaynağında ayrıştırıp lisanslı firmalara hammadde olarak satın.", "[REF-03]"),
-        'Small': ("Eski ekipmanları, birim üretim başına emisyonu düşük 'Eco-Design' modellerle değiştirin.", "[REF-03]"),
-        'Medium': ("Malzeme Akış Analizi (MFA) yaparak üretimdeki görünmez kayıpları tespit edin.", "[REF-04]"),
-        'Large': ("Tedarik zincirinde 'Kapalı Döngü' (Closed-Loop) sistemler kurarak endüstriyel simbiyoz başlatın.", "[REF-04]")
-    },
-    'A3': { 
-        'Micro': ("Çalışanlara temel çevre bilinci ve enerji tasarrufu eğitimleri verin.", "[REF-05]"),
-        'Small': ("'Yeşil Öneri Sistemi' kurarak çevre dostu fikir sunan personeli ödüllendirin.", "[REF-05]"),
-        'Medium': ("Tedarikçi seçim prosedürlerine zorunlu çevresel kriterler (Yeşil Satınalma) ekleyin.", "[REF-08]"),
-        'Large': ("Uluslararası standartlarda (GRI) Sürdürülebilirlik Raporu yayınlayarak şeffaflık sağlayın.", "[REF-09]")
-    },
-    'A4': { 
-        'Micro': ("Belediye ve yerel yönetimlerin atık/emisyon yönetmeliklerine tam uyum sağlayın.", "[REF-06]"),
-        'Small': ("Devletin yeşil dönüşüm hibe ve teşviklerinden yararlanmak için profesyonel danışmanlık alın.", "[REF-06]"),
-        'Medium': ("İhracat pazarlarında rekabet için ISO 14001 Çevre Yönetim Sistemi belgesi alın.", "[REF-10]"),
-        'Large': ("AB Yeşil Mutabakatı (SKDM/CBAM) kapsamındaki karbon vergilerine karşı Kurumsal Karbon Ayak İzi raporlayın.", "[REF-07]")
-    }
-}
 
-COMMENTARY_TEMPLATES = {
-    'A1': "Sektörün önceliği **Dijitalleşme ve Teknoloji (A1)**. Porter ve Heppelmann'ın (2015) belirttiği üzere, fiziksel süreçlerin dijital takibi karbon emisyonlarını minimize etme fırsatı sunmaktadır.",
-    'A2': "Sektörde **Döngüsel Ekonomi (A2)** yaklaşımı baskın. 'Al-Yap-At' modeli yerine kaynak verimliliği ön planda. Atıkların hammaddeye dönüşümü (Geissdoerfer, 2017) maliyet avantajı sağlayacaktır.",
-    'A3': "Sonuçlar **İnsan ve Kültür (A3)** faktörünü işaret ediyor. Yeşil İnsan Kaynakları Yönetimi (Renwick ve ark., 2013) ile çalışanların yetkinliklerinin artırılması, teknoloji yatırımından daha kritiktir.",
-    'A4': "Analiz, **Yasal Uyum ve Risk Yönetimi (A4)** stratejisinin zorunluluk olduğunu gösteriyor. AB Yeşil Mutabakatı ve SKDM (CBAM) düzenlemeleri, uyumu ticari bir ehliyet haline getirmiştir (Sarkis, 2010)."
-}
-
-GROUPS = {'ECONOMIC FACTORS': ['Inv. Cost', 'Oper. Savings', 'ROI', 'Access Finance', 'Market Demand'], 'ENVIRONMENTAL FACTORS': ['Energy', 'GHG', 'Waste', 'Water', 'Hazardous'], 'SOCIAL FACTORS': ['H&S', 'Training', 'Community', 'Job Creation', 'Supplier Comp'], 'TECHNICAL FACTORS': ['TRL', 'Compatibility', 'Monitoring', 'Stability', 'Maintenance'], 'LEGAL & POLICY FACTORS': ['Reg. Compliance', 'Legal Compat.', 'Audit Risk', 'Incentives', 'EU/CBAM']}
-MAIN_MAP = {'ECONOMIC FACTORS': 'Main_C1', 'ENVIRONMENTAL FACTORS': 'Main_C2', 'SOCIAL FACTORS': 'Main_C3', 'TECHNICAL FACTORS': 'Main_C4', 'LEGAL & POLICY FACTORS': 'Main_C5'}
-STRAT_MAP = {'A1': ['Inv. Cost', 'ROI', 'Access Finance', 'Market Demand', 'TRL', 'Compatibility', 'Monitoring', 'Stability', 'Maintenance'], 'A2': ['Oper. Savings', 'Energy', 'GHG', 'Waste', 'Water', 'Hazardous'], 'A3': ['H&S', 'Training', 'Community', 'Job Creation', 'Supplier Comp'], 'A4': ['Reg. Compliance', 'Legal Compat.', 'Audit Risk', 'Incentives', 'EU/CBAM']}
-
-# =============================================================================
-# 4. MANTIK KATMANI
-# =============================================================================
-class TFN:
-    def __init__(self, l, m, u): self.l, self.m, self.u = float(l), float(m), float(u)
-    def __add__(self, o): return TFN(self.l+o.l, self.m+o.m, self.u+o.u)
-    def __truediv__(self, o): return TFN(self.l/o.u, self.m/o.m, self.u/o.l)
-    def defuzzify(self): return (self.l + 2*self.m + self.u) / 4
-
-def get_tfn(val): return TFN(max(1, val-1), val, min(9, val+1))
-
-def generate_strategic_advice(winner_code, motivation_text):
-    if pd.isna(motivation_text): return "Motivasyon verisi bulunamadı."
-    mot = str(motivation_text).lower()
-    
-    if any(x in mot for x in ['imaj', 'marka', 'prestij', 'image', 'brand', 'görünürlük']):
-        if winner_code == 'A1': return "🎯 **Hedef: İmaj & Teknoloji:** Dijital dönüşümü (A1) bir 'modernizasyon vitrini' olarak kullanın."
-        elif winner_code == 'A2': return "🎯 **Hedef: İmaj & Çevre:** Atık yönetimi projelerinizi sosyal sorumluluk kampanyasına dönüştürün."
-        elif winner_code == 'A3': return "🎯 **Hedef: İmaj & İnsan:** 'İnsana Değer Veren Şirket' ödüllerine odaklanın."
-        elif winner_code == 'A4': return "🎯 **Hedef: İmaj & Güven:** Uluslararası standartlara tam uyumlu güvenilir marka imajı çizin."
-    elif any(x in mot for x in ['maliyet', 'tasarruf', 'kar', 'cost', 'profit', 'finans']):
-        if winner_code == 'A1': return "💰 **Hedef: Maliyet:** Otomasyon (A1) ile operasyonel hataları azaltarak kalıcı tasarruf sağlayın."
-        elif winner_code == 'A2': return "💰 **Hedef: Maliyet:** Hammadde geri kazanımı (A2) ile satın alma maliyetlerinizi düşürün."
-        elif winner_code == 'A3': return "💰 **Hedef: Maliyet:** Enerji tasarrufu eğitimleri (A3) ile görünmez giderleri azaltın."
-    elif any(x in mot for x in ['uyum', 'yasa', 'regülasyon', 'devlet', 'ceza', 'compliance']):
-        if winner_code == 'A4': return "⚖️ **Hedef: Uyum:** Tam isabet. Yaklaşan karbon vergisi (SKDM) için karbon ayak izinizi raporlayın."
-        else: return f"⚖️ **Önemli:** Öncelik yasal uyum olsa da, model verimlilik için {winner_code} stratejisini öneriyor."
-    else:
-        return f"💡 **Analiz:** '{motivation_text}' motivasyonunuzu {winner_code} stratejisi ile birleştirin."
-
-@st.cache_data
-def run_fanp_analysis(file_object):
-    try:
-        xls = pd.ExcelFile(file_object)
-        sheet_anp = next((s for s in xls.sheet_names if 'ANP' in s.upper()), xls.sheet_names[1])
-        sheet_demo = next((s for s in xls.sheet_names if 'DEMO' in s.upper()), xls.sheet_names[0])
-
-        df_raw_anp = pd.read_excel(xls, sheet_name=sheet_anp, header=None)
-        h0 = df_raw_anp.iloc[0].fillna(method='ffill').astype(str).str.strip()
-        h1 = df_raw_anp.iloc[1].astype(str).str.strip()
-        cols = []
-        for a, b in zip(h0, h1):
-            if b == 'ID': cols.append(f"{a}_ID")
-            elif a=='nan' or b=='nan': cols.append("DROP")
-            else: cols.append(f"{a}_{b}")
-        df_anp = df_raw_anp.iloc[2:].copy()
-        df_anp.columns = cols
-        df_anp = df_anp[[c for c in cols if "DROP" not in c]]
-        id_col = [c for c in df_anp.columns if "_ID" in c][0]
-        df_anp['Company ID'] = df_anp[id_col].astype(str).str.split('.').str[0]
-        for c in df_anp.columns:
-            if c != 'Company ID': df_anp[c] = pd.to_numeric(df_anp[c], errors='coerce')
-
-        df_demo = pd.read_excel(xls, sheet_name=sheet_demo)
-        renames = {'Company Size': 'Scale', 'Company size': 'Scale', 'Ölçek': 'Scale',
-                   'ID': 'Company ID', 'Sector': 'Sector', 'Sektör': 'Sector'}
-        df_demo.rename(columns=renames, inplace=True)
-        try:
-            motiv_col_name = df_demo.columns[13] 
-            df_demo.rename(columns={motiv_col_name: 'Motivation'}, inplace=True)
-        except:
-            df_demo['Motivation'] = "Belirtilmemiş"
-
-        df_demo['Company ID'] = df_demo['Company ID'].astype(str).str.split('.').str[0]
-        merged_df = pd.merge(df_anp, df_demo, on='Company ID', how='inner')
-        scale_norm_map = {'Micro': 'Micro', 'Mikro': 'Micro', 'Small': 'Small', 'Küçük': 'Small', 
-                          'Medium': 'Medium', 'Orta': 'Medium', 'Large': 'Large', 'Büyük': 'Large'}
-        merged_df['Scale_Norm'] = merged_df['Scale'].map(scale_norm_map).fillna('Medium')
-
-        results = []
-        fanp_details = {} 
-
-        if not merged_df.empty:
-            for _, row in merged_df.iterrows():
-                try:
-                    fuzzy_main = {}
-                    total_main = TFN(0,0,0)
-                    for g, c in MAIN_MAP.items():
-                        val = row.get(f"MAIN WEIGHTS_{c}", 1)
-                        t = get_tfn(val); fuzzy_main[g] = t; total_main = total_main + t
-                    main_w = {k: (v/total_main).defuzzify() for k,v in fuzzy_main.items()}
-                    
-                    global_w = {}
-                    for g, cols in GROUPS.items():
-                        loc_vals = [get_tfn(row.get(f"{g}_{col}", 1)) for col in cols]
-                        tot_loc = TFN(0,0,0)
-                        for t in loc_vals: tot_loc = tot_loc + t
-                        mw = main_w.get(g, 0)
-                        for i, col in enumerate(cols):
-                            lw = (loc_vals[i] / tot_loc).defuzzify()
-                            global_w[col] = lw * mw
-                    
-                    scores = {s: 0.0 for s in STRAT_MAP}
-                    for s, clist in STRAT_MAP.items():
-                        for c in clist: scores[s] += global_w.get(c, 0)
-                    
-                    winner = max(scores, key=scores.get)
-                    scale = row['Scale_Norm']
-                    rec, ref = RECOMMENDATIONS_MAP[winner].get(scale, ("Genel Strateji.", ""))
-                    motivation_txt = row.get('Motivation', 'Belirtilmemiş')
-                    strategic_advice = generate_strategic_advice(winner, motivation_txt)
-                    cid = row['Company ID']
-                    
-                    results.append({
-                        'ID': cid, 'Scale': scale, 'Winner': winner, 'WinnerText': STRATEGY_LABELS[winner],
-                        'Motivation': motivation_txt, 'StrategicAdvice': strategic_advice, 'Rec': rec, 'Ref': ref
-                    })
-                    fanp_details[cid] = {'Main_Weights': main_w, 'Scores': scores}
-                except: continue
-        return pd.DataFrame(results), fanp_details
-    except Exception as e:
-        st.error(f"Hesaplama hatası: {e}")
-        return pd.DataFrame(), {}
-
-# =============================================================================
-# 5. KART OLUŞTURUCU (HATASIZ - TEK SATIR HTML)
-# =============================================================================
-def create_card_html(row, color):
-    # Girinti hatası olmaması için HTML string'ini tek parça halinde oluşturuyoruz
-    html = f'<div class="roadmap-card" style="border-left: 10px solid {color};">'
-    html += f'<div style="display:flex; flex-direction:row; align-items:center; gap:15px; margin-bottom:12px;">'
-    html += f'<div style="font-size:1.4em; font-weight:900; color:{color};">#{row["ID"]}</div>'
-    html += f'<div style="font-size:0.9em; text-transform:uppercase; font-weight:bold; color:#555;">{row["Scale"]}</div>'
-    html += f'<div style="background-color:{color}; color:white; padding:3px 10px; border-radius:12px; font-size:0.85em; font-weight:bold;">{row["Winner"]}</div>'
-    html += f'</div>'
-    
-    html += f'<div style="margin-bottom:15px;">'
-    html += f'<span class="motivation-text">"{row["Motivation"]}"</span>'
-    html += f'</div>'
-    
-    html += f'<div style="margin-bottom:12px; border-bottom:1px dashed #eee; padding-bottom:12px;">'
-    html += f'<strong style="display:block; margin-bottom:4px; color:#222;">🎯 Stratejik Yönlendirme</strong>'
-    html += f'<span style="color:#444;">{row["StrategicAdvice"]}</span>'
-    html += f'</div>'
-    
-    html += f'<div>'
-    html += f'<strong style="display:block; margin-bottom:4px; color:#222;">📝 Aksiyon Planı</strong>'
-    html += f'<span style="color:#444;">{row["Rec"]}</span>'
-    html += f'<div style="margin-top:5px; font-size:0.85em; color:#666;">📚 Kaynak: {row["Ref"]}</div>'
-    html += f'</div>'
-    html += f'</div>'
-    
-    return html
-
-# =============================================================================
-# 6. ARAYÜZ (FRONTEND)
-# =============================================================================
-
+# ------------------------------------------------------------------ kenar çubuğu
 with st.sidebar:
-    st.image("https://cdn-icons-png.flaticon.com/512/1598/1598196.png", width=80)
     st.title("FANP Analiz Aracı")
-    st.markdown("Yeşil Dönüşüm Strateji Belirleme")
-    st.divider()
-    uploaded_file = st.file_uploader("Excel Dosyasını Yükle", type=['xlsx'])
-    st.info("ℹ️ ANP TABLES ve Demographics sayfalarını içeren dosyayı yükleyin.")
+    st.caption("Yeşil dönüşüm strateji belirleme")
+    st.header("Veri")
+    up = st.file_uploader("Anket Excel dosyası", type=["xlsx", "xlsm", "xls"],
+                          help="Sayfa adı ve sütun sırası önemli değil; başlıklar modele göre tanınır.")
+    if up is not None:
+        st.session_state["content"] = up.getvalue()
+        st.session_state["name"] = up.name
+    if ORNEK.exists() and st.button("Tez verisiyle aç", width="stretch"):
+        st.session_state["content"] = ORNEK.read_bytes()
+        st.session_state["name"] = "Tez anket verisi"
+
+    st.header("Model")
+    mup = st.file_uploader("Özel model (isteğe bağlı)", type=["xlsx"], key="model_file",
+                           help="Küme, kriter, strateji ve uzman puanlarını değiştirmek için şablonu indirip düzenleyin. "
+                                "Anket dosyasının içine MODEL sayfası eklemek de aynı işi görür.")
+    model_bytes = mup.getvalue() if mup is not None else None
+    try:
+        base_model = model_yukle(model_bytes)
+    except (m.ModelError, ValueError) as e:
+        st.error(str(e))
+        base_model, model_bytes = m.default_model(), None
+    st.download_button("Model şablonunu indir", data=m.model_template_excel(base_model), file_name="fanp_model.xlsx",
+                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", width="stretch")
+
+    st.header("Ayarlar")
+    sentez = YONTEMLER[st.radio("Sentez yöntemi", list(YONTEMLER), index=0,
+                                help="Önerilen yöntem öncelikleri durulaştırıp normalize ettikten sonra süpermatrise sokar. "
+                                     "Taslak yöntem l, m, u değerlerini sonuna kadar ayrı taşır.")]
+    olcek = OLCEKLER[st.selectbox("Puan ölçeği", list(OLCEKLER), index=0,
+                                  help="Anket farklı bir ölçekle toplandıysa buradan seçin. Uzman matrisi de bu ölçekte olmalı.")]
+    sim = st.select_slider("Sağlamlık analizi (simülasyon sayısı)", options=[0, 250, 500, 1000, 2000], value=1000,
+                           help="Her puan kendi bulanık aralığında rastgele oynatılır ve kazananın birinci kalma oranı ölçülür.")
 
 st.title("🌱 Yeşil Dönüşüm Karar Destek Sistemi")
+st.markdown('<p class="muted">Anket puanları bulanık ANP ile işlenir: her firma için stratejiler arasından en uygunu, '
+            'kararın ne kadar sağlam olduğu ve ölçeğe özel aksiyon planı.</p>', unsafe_allow_html=True)
 
-# Model Tanımları
-with st.expander("ℹ️ Model Seçenekleri ve Tanımları (A1 - A4 Nedir?)", expanded=False):
-    cols = st.columns(4)
-    for idx, (key, info) in enumerate(STRATEGY_DESCRIPTIONS.items()):
-        with cols[idx]:
-            st.markdown(f"### {info['icon']} {key}")
-            st.markdown(f"**{info['title']}**")
-            st.caption(info['desc'])
 
-if uploaded_file is not None:
-    with st.spinner('Analiz yapılıyor...'):
-        df_res, details_data = run_fanp_analysis(uploaded_file)
+def strateji_tanimlari(model):
+    with st.expander(f"Strateji seçenekleri ({', '.join(model.alt_codes)} nedir?)"):
+        per_row = 4
+        for start in range(0, len(model.alternatives), per_row):
+            cols = st.columns(per_row)
+            for col, (code, name) in zip(cols, model.alternatives[start:start + per_row]):
+                icon, desc = m.STRATEGY_DESCRIPTIONS.get(code, ('', ''))
+                with col:
+                    st.markdown(f"### {icon} {code}\n**{name}**")
+                    if desc:
+                        st.caption(desc)
 
-    if not df_res.empty:
-        st.success(f"✅ Analiz Tamamlandı: {len(df_res)} firma incelendi.")
-        
-        # Tabs
-        tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Genel Bakış", "🧩 Matris", "🗺️ Yol Haritası", "🧮 Detaylar", "📚 Kaynakça"])
 
-        # Tab 1: Genel Bakış
-        with tab1:
-            col1, col2 = st.columns([1, 1])
-            with col1:
-                st.subheader("Sektörel Strateji Dağılımı")
-                fig_pie = plt.figure(figsize=(8, 6))
-                counts = df_res['Winner'].value_counts()
-                labels = [STRAT_SHORT[c] for c in counts.index]
-                colors_list = [COLORS[c] for c in counts.index]
-                wedges, texts, autotexts = plt.pie(counts, labels=labels, autopct='%1.1f%%', startangle=140, 
-                                                colors=colors_list, textprops={'fontsize': 10}, pctdistance=0.85)
-                plt.gca().add_artist(plt.Circle((0,0),0.70,fc='white'))
-                plt.setp(autotexts, size=10, weight="bold", color="white")
-                st.pyplot(fig_pie)
-            with col2:
-                top_strat = counts.idxmax()
-                st.subheader("Baskın Strateji")
-                st.metric(label="Sektör Eğilimi", value=STRATEGY_LABELS[top_strat])
-                st.markdown(f"### 💡 Yapay Zeka Yorumu")
-                st.info(COMMENTARY_TEMPLATES.get(top_strat, "Analiz tamamlandı."))
-                csv = df_res.to_csv(index=False).encode('utf-8')
-                st.download_button("📥 İndir (CSV)", data=csv, file_name='sonuclar.csv', mime='text/csv')
+if "content" not in st.session_state:
+    strateji_tanimlari(base_model)
+    st.info("Başlamak için soldan anket Excel dosyasını yükleyin" + (" ya da tez verisiyle açın." if ORNEK.exists() else "."))
+    with st.expander("Excel'de hangi başlıklar olmalı?", expanded=True):
+        st.markdown(f"Model: **{base_model.source}**, {len(base_model.cl_codes)} küme, {len(base_model.codes)} kriter, "
+                    f"{len(base_model.alt_codes)} strateji, puanlar {tr_num(base_model.scale_min, 0)} ile "
+                    f"{tr_num(base_model.scale_max, 0)} arası. Başlık satırında aşağıdaki başlıklar ve her bloğun başında "
+                    "bir `ID` sütunu yeterli. Ölçek, sektör ve motivasyon için `Company ID`, `Company Size`, `Sector`, "
+                    "`Motivation` sütunlu bir sayfa da okunur.")
+        cols = st.columns(3)
+        for k, (code, name, header) in enumerate(base_model.clusters):
+            with cols[k % 3]:
+                st.markdown(f"**{name} ({code})**  \n" + ", ".join(base_model.criteria[i][1] for i in base_model.members[k]))
+        with cols[len(base_model.clusters) % 3]:
+            st.markdown("**Küme puanları**  \n" + ", ".join(c[2] for c in base_model.clusters))
+    st.stop()
 
-        # Tab 2: Matris
-        with tab2:
-            st.subheader("🧩 Strateji & Ölçek Matrisi")
-            matrix_data = []
-            scales_order = ['Micro', 'Small', 'Medium', 'Large']
-            for strat_code, strat_name in STRATEGY_LABELS.items():
-                row_data = {'STRATEJİ': strat_name}
-                for scale in scales_order:
-                    rec_text, ref_code = RECOMMENDATIONS_MAP[strat_code][scale]
-                    row_data[scale] = f"{rec_text} ({ref_code})"
-                matrix_data.append(row_data)
-            df_matrix = pd.DataFrame(matrix_data)
-            
-            def highlight_strategies(val):
-                color = '#333' 
-                if 'A1' in str(val): color = COLORS['A1']
-                elif 'A2' in str(val): color = COLORS['A2']
-                elif 'A3' in str(val): color = COLORS['A3']
-                elif 'A4' in str(val): color = COLORS['A4']
-                return f'color: {color}; font-weight: bold;'
+try:
+    with st.spinner("FANP hesaplanıyor…"):
+        res = hesapla(st.session_state["content"], model_bytes, sentez, sim, olcek)
+except (m.ModelError, ValueError) as e:
+    st.error(str(e))
+    st.stop()
 
-            st.write(df_matrix.style.map(highlight_strategies, subset=['STRATEJİ']).to_html(), unsafe_allow_html=True)
+model = res['model']
+firms, report = res['firms'], res['report']
+A = model.alt_codes
+label_order = [model.labels[a] for a in A]
+COLOR_SCALE = alt.Scale(domain=label_order, range=[model.colors[a] for a in A])
+bar_h = max(160, 42 * len(A))
+strateji_tanimlari(model)
 
-        # Tab 3: Yol Haritası (Kart Görünümü)
-        with tab3:
-            st.subheader("🚀 Stratejik Yol Haritası ve Aksiyon Kartları")
-            st.markdown("Her firma için özel olarak oluşturulmuş stratejik yönlendirme kartları aşağıdadır.")
-            
-            for index, row in df_res.iterrows():
-                c_color = COLORS.get(row['Winner'], '#6c757d')
-                card_html = create_card_html(row, c_color)
-                st.markdown(card_html, unsafe_allow_html=True)
+if firms.empty:
+    st.error("Analiz edilebilecek firma yok. Veri raporundaki eksik veya aralık dışı puanları düzeltip tekrar yükleyin.")
+    st.dataframe(report, hide_index=True, width="stretch")
+    st.stop()
 
-        # Tab 4: Detaylar
-        with tab4:
-            st.subheader("🧮 FANP Analiz Detayları")
-            col_gen, col_det = st.columns([1, 1])
-            with col_gen:
-                st.markdown("#### 🌍 Sektör Geneli")
-                if details_data:
-                    all_main_w = pd.DataFrame([d['Main_Weights'] for d in details_data.values()])
-                    avg_main_w = all_main_w.mean()
-                    fig_main, ax_main = plt.subplots()
-                    avg_main_w.plot(kind='bar', ax=ax_main, color="#333")
-                    st.write("Ana Kriter Önem Düzeyleri")
-                    st.pyplot(fig_main)
-            with col_det:
-                st.markdown("#### 🏢 Firma Bazlı")
-                company_list = df_res['ID'].tolist()
-                selected_company = st.selectbox("Firma Seçin:", company_list)
-                if selected_company and selected_company in details_data:
-                    comp_data = details_data[selected_company]
-                    st.write(f"**{selected_company} Ağırlıkları:**")
-                    fig_comp, ax_comp = plt.subplots(figsize=(4, 4))
-                    labels = list(comp_data['Main_Weights'].keys())
-                    sizes = list(comp_data['Main_Weights'].values())
-                    ax_comp.pie(sizes, labels=labels, autopct='%1.1f%%', startangle=90, colors=sns.color_palette("pastel"))
-                    st.pyplot(fig_comp)
-                    
-                    st.write(f"**{selected_company} Sıralaması:**")
-                    scores_df = pd.DataFrame(list(comp_data['Scores'].items()), columns=['Strateji', 'Puan'])
-                    scores_df = scores_df.sort_values(by='Puan', ascending=False)
-                    st.dataframe(scores_df, hide_index=True, use_container_width=True)
-                    row_data = df_res[df_res['ID'] == selected_company].iloc[0]
-                    st.info(f"💡 **Özel Tavsiye:** {row_data['StrategicAdvice']}")
+with st.sidebar:
+    st.header("Çıktı")
+    st.download_button("Sonuçları Excel olarak indir", data=m.results_excel(res), file_name="fanp_sonuclari.xlsx",
+                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", width="stretch")
+    st.caption(f"{st.session_state['name']}: {res['n_input']} firmadan {len(firms)} tanesi analiz edildi. "
+               f"Model: {model.source}.")
 
-        # Tab 5: Kaynakça
-        with tab5:
-            st.subheader("📚 Akademik Kaynakça")
-            for ref_code, ref_data in REFERENCES_DB.items():
-                st.markdown(f"**{ref_code}**: {ref_data['text']} [<a href='{ref_data['link']}' target='_blank'>📄 Kaynağa Git</a>]", unsafe_allow_html=True)
-                    
+other_label = "taslak Excel yöntemi" if res['other'] == 'excel' else "önerilen yöntem"
+share_cols = [f'{a} payı (%)' for a in A]
+tabs = st.tabs(["Genel bakış", "Firmalar", "Yol haritası", "Firma ayrıntısı", "Strateji ve ölçek matrisi",
+                "Yöntem ve kaynakça", f"Veri raporu ({len(report)})"])
+
+# ------------------------------------------------------------------ genel bakış
+with tabs[0]:
+    g = res['group'].sort_values('Pay (%)', ascending=False)
+    win = g.iloc[0]
+    st.markdown(f'<div class="muted">Sektör geneli: {len(firms)} firmanın ortak kararı (puanların geometrik ortalaması)</div>'
+                f'<div class="verdict" style="color:{model.colors[win["Kod"]]}">{model.names[win["Kod"]]}</div>',
+                unsafe_allow_html=True)
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Sektör genelinde payı", tr_pct(win['Pay (%)']),
+              f"ikinciden {tr_num(win['Pay (%)'] - g.iloc[1]['Pay (%)'])} puan önde", delta_color="off", delta_arrow="off")
+    c2.metric("Sektör kararının birincilik olasılığı", tr_pct(win['Birincilik olasılığı (%)'], 0))
+    c3.metric("Bu stratejiyi seçen firma", f"{(firms['Kazanan'] == win['Kod']).sum()} / {len(firms)}")
+    if sim > 0:
+        c4.metric("Sağlam kararlı firma", f"{(firms['Birincilik olasılığı (%)'] >= 80).sum()} / {len(firms)}",
+                  "birincilik olasılığı %80 ve üstü", delta_color="off", delta_arrow="off")
+    st.info(m.commentary(model, win['Kod']))
+
+    left, right = st.columns([1.1, 1])
+    with left:
+        st.subheader("Sektör geneli strateji payları")
+        gd = g.assign(Etiket=g['Pay (%)'].map(tr_pct))
+        base = alt.Chart(gd).encode(y=alt.Y('Strateji:N', sort='-x', title=None, axis=alt.Axis(labelLimit=320)),
+                                    x=alt.X('Pay (%):Q', title='Pay (%)'))
+        st.altair_chart((base.mark_bar(cornerRadiusEnd=4).encode(color=alt.Color('Strateji:N', scale=COLOR_SCALE, legend=None),
+                                                                 tooltip=['Strateji', alt.Tooltip('Pay (%):Q', format='.2f'),
+                                                                          alt.Tooltip('Birincilik olasılığı (%):Q', format='.0f')])
+                         + base.mark_text(align='left', dx=4).encode(text='Etiket:N')).properties(height=bar_h), width="stretch")
+    with right:
+        st.subheader("Firmaların kazanan stratejisi")
+        cnt = firms['Kazanan'].value_counts().reindex(A, fill_value=0).rename_axis('Kod').reset_index(name='Firma')
+        cnt['Strateji'] = cnt['Kod'].map(model.labels)
+        st.altair_chart(alt.Chart(cnt).mark_bar(cornerRadiusEnd=4).encode(
+            y=alt.Y('Strateji:N', sort=label_order, title=None, axis=alt.Axis(labelLimit=320)),
+            x=alt.X('Firma:Q', title='Firma sayısı', axis=alt.Axis(tickMinStep=1)),
+            color=alt.Color('Strateji:N', scale=COLOR_SCALE, legend=None), tooltip=['Strateji', 'Firma']
+        ).properties(height=bar_h), width="stretch")
+
+    st.subheader("Sektör ve ölçek kırılımı")
+    k1, k2 = st.columns(2)
+    order_scale = [s for s in SCALE_ORDER if s in set(firms['Ölçek'])]
+    for col, field, sort in [(k1, 'Sektör', None), (k2, 'Ölçek', order_scale)]:
+        d = firms.groupby([field, 'Strateji']).size().reset_index(name='Firma')
+        col.markdown("**Sektöre göre**" if field == 'Sektör' else "**Ölçeğe göre**")
+        col.altair_chart(alt.Chart(d).mark_bar(size=22).encode(
+            y=alt.Y(f'{field}:N', sort=sort, title=None, axis=alt.Axis(labelOverlap=False, labelLimit=200)),
+            x=alt.X('Firma:Q', stack='zero', title='Firma sayısı', axis=alt.Axis(tickMinStep=1)),
+            color=alt.Color('Strateji:N', scale=COLOR_SCALE, legend=None),
+            tooltip=[field, 'Strateji', 'Firma']).properties(height=36 * firms[field].nunique() + 40), width="stretch")
+    st.caption("Renkler, üstteki grafiklerdeki strateji renkleriyle aynıdır; ayrıntı için çubukların üzerine gelin.")
+
+# ------------------------------------------------------------------ firmalar
+with tabs[1]:
+    st.subheader("Karar haritası")
+    st.caption("Her hücre, stratejinin firmadaki payıdır. Çerçeveli hücre firmanın kazananı.")
+    heat = firms.melt(id_vars=['ID', 'Kazanan'], value_vars=share_cols, var_name='k', value_name='Pay (%)')
+    heat['Kod'] = heat['k'].str.replace(' payı (%)', '', regex=False)
+    heat['Strateji'] = heat['Kod'].map(model.names)
+    heat['Kazanan mı'] = heat['Kod'] == heat['Kazanan']
+    heat['Firma'] = 'Firma ' + heat['ID']
+    firm_order = ['Firma ' + i for i in firms['ID']]
+    name_order = [model.names[a] for a in A]
+    mid = float(heat['Pay (%)'].min() + 0.6 * (heat['Pay (%)'].max() - heat['Pay (%)'].min()))
+    rect = alt.Chart(heat).mark_rect(cornerRadius=3).encode(
+        x=alt.X('Strateji:N', sort=name_order, title=None,
+                axis=alt.Axis(orient='top', labelAngle=0 if len(A) <= 5 else -30, labelOverlap=False, labelLimit=180)),
+        y=alt.Y('Firma:N', sort=firm_order, title=None),
+        color=alt.Color('Pay (%):Q', scale=alt.Scale(scheme='greens'), legend=alt.Legend(title='Pay (%)')),
+        stroke=alt.condition('datum["Kazanan mı"]', alt.value('#1E2B24'), alt.value(None)),
+        strokeWidth=alt.condition('datum["Kazanan mı"]', alt.value(2.5), alt.value(0)),
+        tooltip=['Firma', 'Strateji', alt.Tooltip('Pay (%):Q', format='.2f')])
+    text = alt.Chart(heat).mark_text(fontSize=11).encode(
+        x=alt.X('Strateji:N', sort=name_order), y=alt.Y('Firma:N', sort=firm_order),
+        text=alt.Text('Pay (%):Q', format='.1f'),
+        color=alt.condition(f'datum["Pay (%)"] > {mid}', alt.value('white'), alt.value('#1E2B24')))
+    st.altair_chart((rect + text).properties(height=28 * len(firms) + 60), width="stretch")
+
+    st.subheader("Sonuç tablosu")
+    view = firms[['ID', 'Ölçek', 'Sektör', 'Strateji'] + share_cols +
+                 ['Fark (yüzde puan)', 'Birincilik olasılığı (%)', 'Diğer yöntemle kazanan', 'Motivasyon', 'Öneri']].copy()
+    view['Diğer yöntemle kazanan'] = view['Diğer yöntemle kazanan'].map(model.names)
+    st.dataframe(view, hide_index=True, width="stretch", column_config={
+        'ID': st.column_config.TextColumn('Firma', width='small'),
+        'Strateji': st.column_config.TextColumn('En uygun strateji', width='medium'),
+        **{c: st.column_config.NumberColumn(c.replace(' payı (%)', ' payı'), format='%.1f') for c in share_cols},
+        'Fark (yüzde puan)': st.column_config.NumberColumn('İkinciye fark', format='%.1f'),
+        'Birincilik olasılığı (%)': st.column_config.ProgressColumn('Birincilik olasılığı', min_value=0, max_value=100, format='%.0f%%'),
+        'Diğer yöntemle kazanan': st.column_config.TextColumn(f'Kazanan ({other_label})'),
+        'Öneri': st.column_config.TextColumn('Aksiyon planı', width='large'),
+    })
+    if sim > 0:
+        fragile = firms[firms['Birincilik olasılığı (%)'] < 80]
+        if len(fragile):
+            st.warning("Kararı kırılgan firmalar (birincilik olasılığı %80 altı): " + "; ".join(
+                f"Firma {r['ID']}: {model.names[r['Kazanan']]} ile {model.names[r['İkinci']]} yakın, {tr_pct(r['Birincilik olasılığı (%)'], 0)}"
+                for _, r in fragile.iterrows()))
+
+# ------------------------------------------------------------------ yol haritası
+with tabs[2]:
+    st.subheader("Stratejik yol haritası ve aksiyon kartları")
+    st.caption("Her firma için modelin seçtiği strateji, firmanın motivasyonuna göre yönlendirme ve ölçeğe özel aksiyon planı.")
+    filtre = st.multiselect("Stratejiye göre süz", A, default=A, format_func=lambda a: model.labels[a])
+    for _, r in firms[firms['Kazanan'].isin(filtre)].iterrows():
+        color = model.colors[r['Kazanan']]
+        prob = "" if pd.isna(r['Birincilik olasılığı (%)']) else f", birincilik {tr_pct(r['Birincilik olasılığı (%)'], 0)}"
+        ref = r['Kaynak']
+        link = m.REFERENCE_LINKS.get(ref)
+        ref_html = f'<a href="{link}" target="_blank">{ref}</a>' if link else (ref or 'tanımlı değil')
+        st.markdown(
+            f'<div class="card" style="border-left:8px solid {color}">'
+            f'<div class="card-top"><span class="card-id" style="color:{color}">#{r["ID"]}</span>'
+            f'<span class="muted">{r["Ölçek"]} ölçek, {r["Sektör"]}</span>'
+            f'<span class="pill" style="background:{color}">{model.labels[r["Kazanan"]]}</span>'
+            f'<span class="muted">pay {tr_pct(r[r["Kazanan"] + " payı (%)"])}{prob}</span></div>'
+            f'<div class="muted">Motivasyon: {r["Motivasyon"]}</div>'
+            f'<h4>🎯 Stratejik yönlendirme</h4><p>{r["Stratejik yönlendirme"]}</p>'
+            f'<h4>📝 Aksiyon planı</h4><p>{r["Öneri"]}</p>'
+            f'<div class="muted" style="margin-top:6px;font-size:.85rem">📚 Kaynak: {ref_html}</div></div>',
+            unsafe_allow_html=True)
+
+# ------------------------------------------------------------------ firma ayrıntısı
+with tabs[3]:
+    fid = st.selectbox("Firma", firms['ID'], format_func=lambda x: f"Firma {x}")
+    f = firms.set_index('ID').loc[fid]
+    w = res['weights'].set_index('ID').loc[fid]
+    cw = res['cluster_weights'].set_index('ID').loc[fid]
+    st.markdown(f'<div class="muted">Firma {fid}: {f["Ölçek"]} ölçek, {f["Sektör"]}</div>'
+                f'<div class="verdict" style="color:{model.colors[f["Kazanan"]]}">{model.names[f["Kazanan"]]}</div>',
+                unsafe_allow_html=True)
+    a, b, c = st.columns(3)
+    a.metric("Strateji payı", tr_pct(f[f'{f["Kazanan"]} payı (%)']))
+    b.metric("İkinciye fark", tr_num(f['Fark (yüzde puan)']) + " puan", model.names[f['İkinci']], delta_color="off", delta_arrow="off")
+    c.metric("Birincilik olasılığı", tr_pct(f['Birincilik olasılığı (%)'], 0))
+    if f['Diğer yöntemle kazanan'] != f['Kazanan']:
+        st.caption(f"Not: {other_label} ile kazanan {model.names[f['Diğer yöntemle kazanan']]} olurdu.")
+
+    l, r = st.columns(2)
+    with l:
+        st.subheader("Küme önem ağırlıkları")
+        cd = pd.DataFrame({'Küme': [c_[1] for c_ in model.clusters], 'Ağırlık (%)': cw[model.cl_codes].values * 100})
+        st.altair_chart(alt.Chart(cd).mark_bar(color='#4F5E55', cornerRadiusEnd=3).encode(
+            y=alt.Y('Küme:N', sort=None, title=None, axis=alt.Axis(labelLimit=260)), x=alt.X('Ağırlık (%):Q'),
+            tooltip=['Küme', alt.Tooltip('Ağırlık (%):Q', format='.1f')]
+        ).properties(height=max(120, 34 * len(model.clusters))), width="stretch")
+        top_n = min(8, len(model.codes))
+        st.subheader(f"En ağır {top_n} kriter")
+        wd = pd.DataFrame({'Kriter': [f"{c_[2]} ({c_[1]})" for c_ in model.criteria], 'Ağırlık (%)': w[model.codes].values * 100}) \
+            .nlargest(top_n, 'Ağırlık (%)')
+        st.altair_chart(alt.Chart(wd).mark_bar(color='#4F5E55', cornerRadiusEnd=3).encode(
+            y=alt.Y('Kriter:N', sort='-x', title=None, axis=alt.Axis(labelLimit=260)), x=alt.X('Ağırlık (%):Q'),
+            tooltip=['Kriter', alt.Tooltip('Ağırlık (%):Q', format='.2f')]).properties(height=30 * top_n), width="stretch")
+    with r:
+        st.subheader("Strateji payları")
+        sd = pd.DataFrame({'Strateji': label_order, 'Pay (%)': [f[f'{x} payı (%)'] for x in A],
+                           'Birincilik (%)': [f.get(f'{x} birincilik (%)', np.nan) for x in A]})
+        st.altair_chart(alt.Chart(sd).mark_bar(cornerRadiusEnd=3).encode(
+            y=alt.Y('Strateji:N', sort='-x', title=None, axis=alt.Axis(labelLimit=320)), x=alt.X('Pay (%):Q'),
+            color=alt.Color('Strateji:N', scale=COLOR_SCALE, legend=None),
+            tooltip=['Strateji', alt.Tooltip('Pay (%):Q', format='.2f'), alt.Tooltip('Birincilik (%):Q', format='.0f')]
+        ).properties(height=bar_h), width="stretch")
+        st.subheader("Stratejik yönlendirme")
+        st.caption(f"Motivasyon: {f['Motivasyon']}")
+        st.markdown(f'<div class="rec">{f["Stratejik yönlendirme"]}</div>', unsafe_allow_html=True)
+        st.subheader(f"Aksiyon planı ({f['Ölçek']} ölçek)")
+        ref = m.APA_REFERENCES.get(f['Kaynak'], '')
+        st.markdown(f'<div class="rec">{f["Öneri"]}' + (f'<br><small class="muted">Kaynak: {ref}</small>' if ref else '') + '</div>',
+                    unsafe_allow_html=True)
+
+# ------------------------------------------------------------------ strateji ve ölçek matrisi
+with tabs[4]:
+    st.subheader("Strateji ve ölçek matrisi")
+    st.caption("Her strateji için firma ölçeğine göre aksiyon planı.")
+    st.dataframe(m.scale_matrix(model), hide_index=True, width="stretch",
+                 column_config={sc: st.column_config.TextColumn(sc, width='large') for sc in SCALE_ORDER[:4]})
+
+# ------------------------------------------------------------------ yöntem
+with tabs[5]:
+    st.subheader("Hesap adımları")
+    sp = f"{model.spread:g}".replace(".", ",")
+    st.markdown(f"""
+1. Her puan ({model.scale_min:g} ile {model.scale_max:g}) üçgen bulanık sayıya çevrilir: p için (p−{sp}, p, p+{sp}), ölçek sınırlarında kırpılır.
+2. Aynı kümedeki kriterlerden bulanık ikili karşılaştırma matrisi kurulur: l = lᵢ/uⱼ, m = mᵢ/mⱼ, u = uᵢ/lⱼ.
+3. Bulanık normalizasyon (l/Σu, m/Σm, u/Σl) ve satır ortalamasıyla yerel öncelikler, aynı işlemle küme öncelikleri bulunur.
+4. Uzmanların strateji x kriter puanları bulanık olarak normalize edilir.
+5. {"Öncelikler (l + 2m + u) / 4 ile durulaştırılıp yeniden normalize edilir." if sentez == "durulastirilmis" else "l, m ve u bileşenleri sona kadar ayrı taşınır; net skor en sonda (l + 2m + u) / 4 ile bulunur."}
+6. Süpermatris kurulur (amaç, kriterler, stratejiler; stratejiler yutucu{", kriterler arası iç bağımlılık dahil" if model.dependence is not None else ""}) ve limit süpermatristeki strateji öncelikleri puan olur.
+7. Sektör geneli için tüm firmaların puanlarının geometrik ortalaması aynı modelden geçirilir.
+8. Sağlamlık: her puan kendi üçgen dağılımından {sim} kez örneklenir, kazananın birinci kalma oranı ölçülür.
+""")
+    st.caption(f"Model: {model.source}. {len(model.cl_codes)} küme, {len(model.codes)} kriter, {len(A)} strateji.")
+    st.subheader("Yöntem geçerlilik testi")
+    st.caption("Bir firma tek bir kümeyi belirleyici (ölçek üstü), geri kalan her şeyi önemsiz (ölçek altı) sayarsa, "
+               "uzman matrisinin o kümede en güçlü gördüğü strateji kazanmalıdır.")
+    vt = m.validity_test(model)
+    mark = lambda x, e: f"{model.names[x]} {'✓' if x == e else '✗'}"
+    st.dataframe(pd.DataFrame({'Senaryo': vt['Senaryo'], 'Beklenen': vt['Beklenen'].map(model.names),
+                               'Önerilen yöntem': [mark(x, e) for x, e in zip(vt['Kazanan (durulastirilmis)'], vt['Beklenen'])],
+                               'Taslak Excel yöntemi': [mark(x, e) for x, e in zip(vt['Kazanan (excel)'], vt['Beklenen'])]}),
+                 hide_index=True, width="stretch")
+    st.subheader("Model: kriterler ve uzman matrisi")
+    st.dataframe(m.model_table(model), hide_index=True, width="stretch")
+    with st.expander("Sektör geneli global kriter ağırlıkları"):
+        gw = res['group_weights'].assign(**{'Global ağırlık (%)': lambda d: d['Global ağırlık'] * 100}).drop(columns='Global ağırlık')
+        st.dataframe(gw, hide_index=True, width="stretch",
+                     column_config={'Global ağırlık (%)': st.column_config.NumberColumn(format='%.2f')})
+    st.subheader("Akademik kaynakça")
+    for code, text in m.APA_REFERENCES.items():
+        link = m.REFERENCE_LINKS.get(code)
+        st.markdown(f"**{code}** {text}" + (f" [Kaynağa git]({link})" if link else ""))
+
+# ------------------------------------------------------------------ veri raporu
+with tabs[6]:
+    info = res.get('info', {})
+    st.caption(f"Puan sayfası: {info.get('puan_sayfasi', 'bulunamadı')}. Demografi sayfası: "
+               f"{info.get('demografi_sayfasi', 'bulunamadı')}. Model: {info.get('model', model.source)}.")
+    if len(report):
+        st.dataframe(report, hide_index=True, width="stretch")
     else:
-        st.warning("Veri seti boş veya okunamadı.")
-else:
-    st.info("👈 Excel dosyanızı yükleyerek başlayın.")
+        st.success("Sorun bulunmadı: tüm firmaların puanları eksiksiz ve ölçek içinde.")
