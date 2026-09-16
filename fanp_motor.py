@@ -1020,3 +1020,89 @@ def results_excel(result):
         (result['report'] if len(result['report']) else pd.DataFrame([{'Tür': '', 'Yer': '', 'Açıklama': 'Sorun bulunmadı'}])) \
             .to_excel(xw, sheet_name='Veri Raporu', index=False)
     return buf.getvalue()
+# =============================================================================
+# BAĞIMSIZ YEŞİL DÖNÜŞÜM DANIŞMANI (CHATBOT MOTORU)
+# =============================================================================
+CHAT_KNOWLEDGE = {
+    'skdm': {
+        'keywords': ['skdm', 'cbam', 'karbon vergisi', 'ihracat', 'avrupa', 'ab', 'vergi'],
+        'response': (
+            "⚖️ **SKDM & Sınırda Karbon Düzenlemesi:**\n\n"
+            "- **Mevzuat Uyarısı:** AB Sınırda Karbon Düzenleme Mekanizması (CBAM), özellikle demir-çelik, alüminyum, çimento, gübre ve elektrik sektörlerinde doğrudan raporlama zorunluluğu getirmektedir.\n"
+            "- **Öncelikli Aksiyon:** Tesisiniz için ISO 14064-1 standardında Kurumsal Karbon Ayak İzi hesaplaması başlatılmalıdır.\n"
+            "- **Strateji Eşleşmesi:** Bu risk doğrudan **A4 (Yasal Uyum ve Yönetişim)** kapsamında ele alınmalıdır.\n"
+            "- **Yönlendirme:** TÜRKAK akreditasyonlu doğrulama kuruluşları ve KOSGEB Yeşil Sanayi Destek Programı danışmanlık hibeleri incelenmelidir."
+        )
+    },
+    'maliyet': {
+        'keywords': ['maliyet', 'finans', 'para', 'tasarruf', 'teşvik', 'hibe', 'bütçe', 'kredi'],
+        'response': (
+            "💰 **Yeşil Finansman & Teşvik Rehberi:**\n\n"
+            "- **Ulusal Destekler:** TÜBİTAK 1831 Yeşil İnovasyon Teknoloji Mentörlük Programı ve KOSGEB Yeşil Sanayi Projesi (Dünya Bankası kaynaklı) faizsiz kredi imkanları sunmaktadır.\n"
+            "- **Tasarruf Stratejisi:** Operasyonel tasarruf için **A2 (Döngüsel Ekonomi)** ile hammadde firesinin azaltılması ve **A1** ile motorlarda frekans konvertörü kullanımı hızlı ROI sağlar.\n"
+            "- **Yeşil Kredi:** Bankaların yeşil mutabakat uyum kredilerinde faiz indirimi alabilmek için enerji etüt raporu gereklidir."
+        )
+    },
+    'atik': {
+        'keywords': ['atık', 'geri dönüşüm', 'pe', 'pp', 'plastik', 'hurda', 'döngüsel', 'simbiyoz'],
+        'response': (
+            "♻️ **Döngüsel Ekonomi & Atık Yönetimi:**\n\n"
+            "- **Sektörel Dinamik:** Plastik ve imalat sektörlerinde PE (Polietilen) ve PP (Polipropilen) geri kazanımı en yüksek ekonomik değere sahiptir.\n"
+            "- **Öncelikli Aksiyon:** Sıfır Atık Belgesi seviyenizi yükseltin ve tesis içi Malzeme Akış Analizi (MFA) gerçekleştirin.\n"
+            "- **Strateji Eşleşmesi:** **A2: Yeşil Tedarik ve Döngüsel Ekonomi** stratejisi.\n"
+            "- **Yönlendirme:** Çevre, Şehircilik ve İklim Değişikliği Bakanlığı lisanslı geri kazanım tesisleriyle kapalı döngü sözleşmeleri yapılması önerilir."
+        )
+    },
+    'enerji': {
+        'keywords': ['enerji', 'ges', 'güneş', 'res', 'elektrik', 'tüketim', 'verimlilik', 'iso 50001'],
+        'response': (
+            "⚡ **Enerji Verimliliği & Yenilenebilir Kaynaklar:**\n\n"
+            "- **Standart Uyarısı:** Enerji yoğun tesislerde ISO 50001 Enerji Yönetim Sistemi belgesi kurulması zorunlu hale gelmektedir.\n"
+            "- **Öz Tüketim Yatırımı:** Fabrika çatılarına kurulacak lisanssız Güneş Enerjisi Santralleri (GES) için Sanayi Bölgeleri Teşvik kapsamındadır.\n"
+            "- **Strateji Eşleşmesi:** **A3: Yenilenebilir Enerji ve Yetkinlik** stratejisi.\n"
+            "- **Yönlendirme:** VAP (Verimlilik Artırıcı Proje) hibe destekleri için Enerji ve Tabii Kaynaklar Bakanlığı başvuruları takip edilmelidir."
+        )
+    },
+    'dijital': {
+        'keywords': ['iot', 'sensör', 'yazılım', 'dijital ikiz', 'yapay zeka', 'otomasyon', 'takip', 'scada'],
+        'response': (
+            "🤖 **Yeşil Üretim Teknolojileri & Dijitalleşme:**\n\n"
+            "- **Teknik Altyapı:** Karbon ve enerji tüketimini gerçek zamanlı izlemek için SCADA veya IoT tabanlı alt sayaç entegrasyonu şarttır.\n"
+            "- **Strateji Eşleşmesi:** **A1: Yeşil Üretim Teknolojileri** stratejisi.\n"
+            "- **Verimlilik Etkisi:** Porter & Heppelmann (2015) prensipleri gereğince, anlık veri akışı üretim hattındaki kayıp-kaçak oranlarını %12-18 oranında düşürür."
+        )
+    }
+}
+
+def local_green_consultant_reply(prompt: str, active_firm_context: dict = None) -> str:
+    """Harici API gerektirmeyen bağımsız kural ve içerik tabanlı yeşil danışman."""
+    text = prompt.lower().strip()
+    
+    # 1. Eşleşen konu başlıklarını bul
+    matched_responses = []
+    for topic, data in CHAT_KNOWLEDGE.items():
+        if any(kw in text for kw in data['keywords']):
+            matched_responses.append(data['response'])
+            
+    # 2. Eğer firma bağlamı (analiz sonucu) mevcutsa yanıtı kişiselleştir
+    context_prefix = ""
+    if active_firm_context and active_firm_context.get('Kazanan'):
+        win = active_firm_context['Kazanan']
+        scale = active_firm_context.get('Ölçek', 'Orta')
+        context_prefix = (
+            f"📌 **Aktif Firma Analiz Özeti:** Firmanız için modelin önerdiği öncelikli strateji **{win}** "
+            f"({scale} ölçek).\n\n"
+        )
+        
+    if matched_responses:
+        return context_prefix + "\n\n---\n\n".join(matched_responses)
+        
+    # Eşleşme yoksa genel rehberlik sun
+    return context_prefix + (
+        "🌱 **Yeşil Dönüşüm Danışmanı:** Sorunuzu tam olarak eşleştiremedim. Aşağıdaki konulardan biri hakkında detaylı bilgi isteyebilirsiniz:\n\n"
+        "- **SKDM ve Karbon Vergisi** (Yasal riskler, ihracat standartları)\n"
+        "- **Devlet Destekleri ve Teşvikler** (KOSGEB, TÜBİTAK yeşil hibe programları)\n"
+        "- **Atık Yönetimi ve Döngüsel Ekonomi** (PE/PP plastik geri kazanımı, hurda yönetimi)\n"
+        "- **Çatı GES ve Enerji Verimliliği** (ISO 50001, VAP projeleri)\n"
+        "- **Dijital Takip ve IoT Sistemleri** (Sensörler, karbon izleme altyapısı)"
+    )

@@ -167,7 +167,7 @@ with st.sidebar:
 other_label = "tezdeki yöntem" if res['other'] == 'bulanik' else "durulaştırılmış sentez"
 share_cols = [f'{a} payı (%)' for a in A]
 tabs = st.tabs(["Genel bakış", "Firmalar", "Yol haritası", "Firma ayrıntısı", "Strateji ve ölçek matrisi",
-                "Yöntem ve kaynakça", f"Veri raporu ({len(report)})"])
+                "Yöntem ve kaynakça", f"Veri raporu ({len(report)})", "💬 Yeşil Danışman (Chatbot)"])
 
 # ------------------------------------------------------------------ genel bakış
 with tabs[0]:
@@ -399,3 +399,41 @@ with tabs[6]:
         st.dataframe(report, hide_index=True, width="stretch")
     else:
         st.success("Sorun bulunmadı: tüm firmaların puanları eksiksiz ve ölçek içinde.")
+# ------------------------------------------------------------------ yeşil danışman (chatbot)
+with tabs[7]:
+    st.subheader("💬 Bağımsız Yeşil Dönüşüm Asistanı")
+    st.caption("Mevzuat, hibeler, döngüsel ekonomi adımları ve analizinize özel aksiyonlar için danışmanlık alın.")
+
+    # Oturum geçmişi başlatma
+    if "chat_messages" not in st.session_state:
+        st.session_state.chat_messages = [
+            {"role": "assistant", "content": "Merhaba! Ben Yeşil Dönüşüm Danışmanınızım. Tesisinizin analizi, SKDM mevzuatı, KOSGEB/TÜBİTAK destekleri veya enerji tasarrufu çözümleri hakkında bana soru sorabilirsiniz."}
+        ]
+
+    # Firma bağlamını seçme
+    selected_firm_context = None
+    if not firms.empty:
+        col_c1, col_c2 = st.columns([1, 2])
+        with col_c1:
+            chat_firm_id = st.selectbox("Danışmanlık için odaklanılacak firma:", firms['ID'], format_func=lambda x: f"Firma {x}", key="chat_firm_select")
+            selected_firm_context = firms.set_index('ID').loc[chat_firm_id].to_dict()
+        with col_c2:
+            st.info(f"Seçili Firma Stratejisi: **{model.labels[selected_firm_context['Kazanan']]}** ({selected_firm_context['Ölçek']} Ölçek)")
+
+    # Mesaj geçmişini yazdır
+    for msg in st.session_state.chat_messages:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
+    # Kullanıcı girişi
+    if prompt := st.chat_input("Sorunuzu buraya yazın (Örn: SKDM karbon vergisine nasıl hazırlanmalıyım?)..."):
+        st.session_state.chat_messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+
+        # Bağımsız çıkarım motorundan yanıt al
+        yanit = m.local_green_consultant_reply(prompt, selected_firm_context)
+
+        with st.chat_message("assistant"):
+            st.markdown(yanit)
+        st.session_state.chat_messages.append({"role": "assistant", "content": yanit})
