@@ -15,6 +15,23 @@ import pandas as pd
 import streamlit as st
 
 import fanp_motor as m
+try:
+    from rag_motor import GreenRAG
+except ImportError:
+    GreenRAG = None
+
+@st.cache_resource(show_spinner=False)
+def load_rag():
+    if GreenRAG is None:
+        return None
+    try:
+        rag = GreenRAG()
+        if rag.read_and_chunk_pdfs():
+            rag.build_vector_db()
+            return rag
+    except Exception as e:
+        st.sidebar.warning(f"RAG Motoru Başlatılamadı: {e}")
+    return None
 
 st.set_page_config(page_title="Yeşil Dönüşüm Analiz Aracı", page_icon="🌱", layout="wide", initial_sidebar_state="expanded")
 
@@ -449,7 +466,7 @@ with tabs[7]:
         with st.chat_message("user"):
             st.markdown(active_prompt)
 
-        cevap = m.advanced_green_consultant_reply(active_prompt, selected_firm_context, model)
+        cevap = m.advanced_green_consultant_reply(active_prompt, selected_firm_context, model, rag_engine)
 
         with st.chat_message("assistant"):
             st.markdown(cevap)
