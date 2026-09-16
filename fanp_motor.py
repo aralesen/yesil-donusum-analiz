@@ -596,8 +596,76 @@ CONSULTANT_INTENTS = {
 }
 
 
-def advanced_green_consultant_reply(prompt: str, firm_data: dict = None, model = None) -> str:
+def advanced_green_consultant_reply(prompt: str, firm_data: dict = None, model = None, rag_engine = None) -> str:
     text = prompt.lower().strip()
+    
+    matched_intents = []
+    for key, data in CONSULTANT_INTENTS.items():
+        score = sum(1 for term in data['terms'] if term in text)
+        if score > 0:
+            matched_intents.append((score, data))
+            
+    matched_intents.sort(key=lambda x: x[0], reverse=True)
+    
+    firm_id = firm_data.get('ID', 'Genel') if firm_data else 'Genel'
+    winner_strat = firm_data.get('Kazanan', 'A1') if firm_data else None
+    scale = firm_data.get('Ölçek', 'Orta') if firm_data else 'Orta'
+    motivation = firm_data.get('Motivasyon', 'Belirtilmemiş') if firm_data else 'Belirtilmemiş'
+    
+    out = []
+    
+    # 1. RAG ARAMASI (YAPAY ZEKA PDF TARAMASI)
+    rag_results = []
+    if rag_engine is not None:
+        rag_results = rag_engine.search(prompt, top_k=2) # En iyi 2 paragrafı getir
+        
+    if firm_data:
+        strat_label = model.labels[winner_strat] if model else winner_strat
+        out.append(f"### 🏢 Kurumsal Değerlendirme [Firma #{firm_id} | {scale} Ölçek]")
+        out.append(f"**Modelin Belirlediği Öncelik:** `{strat_label}` | **Temel Motivasyon:** *\"{motivation}\"*")
+        out.append("---")
+    
+    if matched_intents:
+        top_intent = matched_intents[0][1]
+        out.append(f"#### 🧠 Stratejik Analiz & Teşhis\n{top_intent['analysis']}")
+        
+        if winner_strat:
+            if winner_strat == top_intent['strategy']:
+                out.append(f"\n> 🎯 **Sistem Doğrulaması:** Bu konu, FANP modelinin firmanız için belirlediği **{winner_strat}** stratejisi ile **birebir örtüşmektedir**. Kaynak önceliğinizi doğrudan bu aksiyonlara yöneltmelisiniz.")
+            else:
+                out.append(f"\n> 💡 **Stratejik Sentez:** Sorguladığınız başlık firmanızın birincil stratejisinden ({winner_strat}) farklı görünse de, bu alanı **{winner_strat}** vizyonunuza destekçi bir alt proje olarak kurgulamalısınız.")
+        
+        out.append("\n#### 📋 Adım Adım Aksiyon Reçetesi")
+        for i, step in enumerate(top_intent['prescription'], 1):
+            out.append(f"{i}. {step}")
+            
+        out.append("\n#### 🤝 Doğrulanmış Çözüm Ortakları & Yönlendirmeler")
+        out.append("Bu aşamada dış danışmanlık veya tedarikçi iş birliği gerekebilir:")
+        for lead in top_intent['leads']:
+            out.append(f"- 🔗 **{lead}** (Ön görüşme & fizibilite desteği)")
+            
+    else:
+        out.append("#### 🌱 Yeşil Dönüşüm Uzman Asistanı")
+        out.append("Sorunuzu spesifik yeşil dönüşüm parametrelerine göre değerlendirebilmem için lütfen aşağıdaki başlıklardan birini seçin ya da bu doğrultuda detay verin:\n")
+        out.append("1. **SKDM ve Karbon Vergisi Yönetimi**")
+        out.append("2. **Devlet Destekleri & Yeşil Finansman**")
+        out.append("3. **Döngüsel Ekonomi & Atık Değerlendirme**")
+        out.append("4. **Enerji Verimliliği & Öz Tüketim GES**")
+        out.append("5. **Endüstriyel IoT & Dijital İkizler**")
+
+    # 2. RAG SONUÇLARINI ÇIKTIYA EKLE
+    if rag_results and isinstance(rag_results, list):
+        out.append("\n---\n#### 📖 Doküman Havuzundan Çıkarımlar (Semantik RAG)")
+        out.append("*Yapay zeka, kurum veri tabanındaki PDF belgelerinden aşağıdaki ilgili mevzuat/teori paragraflarını eşleştirdi:*")
+        for idx, res in enumerate(rag_results, 1):
+            source_name = res.get('source', 'Bilinmeyen Kaynak')
+            snippet = res.get('text', '').replace('\n', ' ').strip()
+            # Çok uzun olmaması için kırpalım
+            if len(snippet) > 500:
+                snippet = snippet[:500] + "..."
+            out.append(f"> 📄 **{source_name}**: *\"{snippet}\"*")
+
+    return "\n".join(out)
     
     matched_intents = []
     for key, data in CONSULTANT_INTENTS.items():
