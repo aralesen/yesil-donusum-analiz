@@ -1,82 +1,122 @@
 # -*- coding: utf-8 -*-
 """
 Yeşil Dönüşüm Deterministik Hesap Motoru & Sentetik Firma Üreteci
-Ürün Anayasası Madde 7 ve 8'e göre: Veri eksikliği, kütle dengesi, tahsis ve 
-resmi varsayılan (default) değer karşılaştırmaları yapılır.
+Modüler Mimari: Sınır değerler statik değildir. Excel sekmeleri (Ülke/Şirket/Tesis) 
+dinamik olarak okunur ve varlık (Entity) bazlı hesaplama yapılır.
 """
 
 import pandas as pd
 import numpy as np
 import random
+import os
 
 # =============================================================================
-# 1. BİLGİ TABANI (FAZ 0) - RESMİ VARSAYILAN DEĞERLER (CBAM)
+# 1. BİLGİ TABANI (FAZ 0) - DİNAMİK EXCEL OKUYUCU
 # =============================================================================
 class KnowledgeBase:
     def __init__(self, excel_path="DVs as adopted_v20260204 .xlsx"):
         self.excel_path = excel_path
-        self.default_values = {}
+        self.entities = []       # Excel'deki sekme isimleri (Ülkeler, Şirketler vb.)
+        self.parsed_data = {}    # Hafızaya alınan segment verileri
         
-    def load_turkey_defaults(self):
-        """
-        Excel dosyasından 'Türkiye' sekmesindeki resmi CN kodlarını ve 
-        emisyon sınırlarını (Direct & Indirect Default Values) belleğe alır.
-        Şimdilik demo amaçlı statik bir sözlük dönüyoruz, gerçekte Excel'i okuyacak.
-        """
-        try:
-            # Gerçekte: df = pd.read_excel(self.excel_path, sheet_name='Türkiye')
-            # Şimdilik resmi gazeteden (örneğin Çimento ve Demir-Çelik) örnekler:
-            self.default_values = {
-                '25231000': {'desc': 'Grey clinker', 'direct': 0.860, 'indirect': 0.040, 'total': 0.900},
-                '72061000': {'desc': 'Ingots, of iron and non-alloy steel', 'direct': 2.290, 'indirect': 0.0, 'total': 2.290},
-                '7601': {'desc': 'Unwrought aluminium', 'direct': 1.700, 'indirect': 0.0, 'total': 1.700}
-            }
-            return True
-        except Exception as e:
-            print(f"Bilgi Tabanı Hatası: {e}")
-            return False
+    def load_database(self):
+        """Excel'i tarar, meta sayfaları atlar ve geçerli segmentleri (sekmeleri) kaydeder."""
+        if not os.path.exists(self.excel_path):
+            raise FileNotFoundError(f"⚠️ Bilgi Tabanı bulunamadı: {self.excel_path} dosyası ana klasörde olmalı.")
+            
+        xls = pd.ExcelFile(self.excel_path)
+        # Okunmayacak meta/tanıtım sekmelerini filtrele
+        ignore_sheets = ['Overview', 'Version History', '_Other Countries and Territorie']
+        self.entities = [sheet for sheet in xls.sheet_names if sheet not in ignore_sheets]
+        
+        # Sadece Türkiye'yi baştan yükleyelim ki sistem hızlansın (Lazy Loading)
+        if 'Türkiye' in self.entities:
+            self.fetch_entity_data('Türkiye')
+
+    def fetch_entity_data(self, entity_name):
+        """İstenilen sekmedeki veriyi dinamik olarak okur, başlıkları bulur ve sözlüğe çevirir."""
+        if entity_name in self.parsed_data:
+            return self.parsed_data[entity_name]
+            
+        df = pd.read_excel(self.excel_path, sheet_name=entity_name, header=None)
+        
+        # Gerçek başlık satırını bul (İçinde 'CN Code' veya 'Description' geçen satır)
+        header_idx = 0
+        for i, row in df.iterrows():
+            row_str = " ".join([str(x).lower() for x in row.values])
+            if 'cn code' in row_str or 'description' in row_str:
+                header_idx = i
+                break
+                
+        # Sütun isimlerini ayarla ve temizle
+        df.columns = df.iloc[header_idx]
+        df = df.iloc[header_idx + 1:].dropna(how='all')
+        df.columns = [str(c).replace('\n', ' ').strip().lower() for c in df.columns]
+        
+        entity_dict = {}
+        # Sütun isimleri değişkendir, esnek bulmak için:
+        cn_col = next((c for c in df.columns if 'cn code' in c), None)
+        total_col = next((c for c in df.columns if 'total emissions' in c), None)
+        desc_col = next((c for c in df.columns if 'description' in c), None)
+        
+        if cn_col and total_col:
+            for _, row in df.iterrows():
+                cn_val = str(row[cn_col]).replace('.0', '').strip()
+                try:
+                    total_val = float(row[total_col])
+                    desc_val = str(row[desc_col]) if desc_col else "Tanımsız Ürün"
+                    if cn_val and cn_val != 'nan' and not np.isnan(total_val):
+                        entity_dict[cn_val] = {
+                            'desc': desc_val,
+                            'total': total_val
+                        }
+                except (ValueError, TypeError):
+                    continue
+                    
+        self.parsed_data[entity_name] = entity_dict
+        return entity_dict
 
 # =============================================================================
-# 2. HESAP ZİNCİRİ KAPILARI (MADDE 3 & MADDE 7)
+# 2. HESAP ZİNCİRİ KAPILARI (MADDE 3 & 7) - BAĞLAM DUYARLI
 # =============================================================================
 class CalculationEngine:
     def __init__(self, knowledge_base):
         self.kb = knowledge_base
         
     def validate_inputs(self, firm_data):
-        """Girdi Kapısı: Eksik, negatif veya birimi tutmayan verileri reddeder."""
-        required = ['firma_id', 'cn_kodu', 'uretim_ton', 'kapsam1_emisyon', 'kapsam2_emisyon']
+        required = ['firma_id', 'segment', 'cn_kodu', 'uretim_ton', 'kapsam1_emisyon', 'kapsam2_emisyon']
         for req in required:
             if req not in firm_data or pd.isna(firm_data[req]):
                 return False, f"Eksik veri: {req}"
         if firm_data['uretim_ton'] <= 0:
-            return False, "Üretim miktarı sıfır veya negatif olamaz."
+            return False, "Üretim sıfır veya negatif."
+        if firm_data['segment'] not in self.kb.entities:
+            return False, f"Bilinmeyen Segment (Ülke/Şirket): {firm_data['segment']}"
         return True, "Geçerli"
 
     def calculate_embedded_emissions(self, firm_data):
-        """
-        Faaliyet verilerinden Tahsis ve Gömülü Emisyon (Ton CO2 / Ton Ürün) hesaplar.
-        """
         is_valid, msg = self.validate_inputs(firm_data)
         if not is_valid:
             return {'error': msg}
             
-        uretim = firm_data['uretim_ton']
-        # Basit tahsis: Toplam emisyonu üretim miktarına böleriz
-        direct_embedded = firm_data['kapsam1_emisyon'] / uretim
-        indirect_embedded = firm_data['kapsam2_emisyon'] / uretim
-        total_embedded = direct_embedded + indirect_embedded
-        
-        # Resmi Varsayılan Değerlerle Karşılaştırma
+        segment = firm_data['segment']
         cn = str(firm_data['cn_kodu'])
-        dv_total = self.kb.default_values.get(cn, {}).get('total', None)
+        uretim = firm_data['uretim_ton']
         
-        # Firmanın performansı resmi AB sınırının neresinde? (Negatifse firma iyi durumda)
+        total_embedded = (firm_data['kapsam1_emisyon'] + firm_data['kapsam2_emisyon']) / uretim
+        
+        # Dinamik Segment (Ülke/Firma) üzerinden veri çek
+        segment_data = self.kb.fetch_entity_data(segment)
+        dv_total = segment_data.get(cn, {}).get('total', None)
+        urun_adi = segment_data.get(cn, {}).get('desc', 'Bilinmeyen Ürün')
+        
         fark = (total_embedded - dv_total) if dv_total else None
         
         return {
             'firma_id': firm_data['firma_id'],
+            'segment': segment,
             'cn_kodu': cn,
+            'urun_adi': urun_adi[:30] + "..." if len(urun_adi) > 30 else urun_adi,
             'gercek_toplam_emisyon': total_embedded,
             'resmi_sinir': dv_total,
             'fark': fark,
@@ -84,61 +124,42 @@ class CalculationEngine:
         }
 
 # =============================================================================
-# 3. SENTETİK FİRMA ÜRETECİ (MADDE 8)
+# 3. SENTETİK FİRMA ÜRETECİ (MADDE 8) - GERÇEKÇİ ÖRNEKLEM
 # =============================================================================
-def generate_synthetic_firms(n=1000):
-    """
-    Algoritmanın doğruluğunu test etmek için bilinen cevaplı sentetik firmalar üretir.
-    Sınır vakaları (çok yüksek emisyon, çok düşük üretim) kasten içerir.
-    """
-    cn_codes = ['25231000', '72061000', '7601']
+def generate_synthetic_firms(kb, n=50):
+    """Sistemin modülerliğini test etmek için rastgele ülkelerden/segmentlerden firma üretir."""
     firms = []
     
+    # Sadece verisi parse edilebilen segmentleri kullan (Örn: Türkiye, Germany)
+    available_segments = [s for s in kb.entities if len(kb.fetch_entity_data(s)) > 0]
+    if not available_segments:
+        return pd.DataFrame()
+        
     for i in range(1, n + 1):
-        cn = random.choice(cn_codes)
+        segment = random.choice(available_segments)
+        segment_data = kb.fetch_entity_data(segment)
         
-        # %5 ihtimalle bozuk vaka (sıfır üretim)
-        uretim = 0 if random.random() < 0.05 else random.uniform(100, 10000)
+        # O segmente ait rastgele bir CN Kodu seç
+        valid_cns = list(segment_data.keys())
+        if not valid_cns:
+            continue
+            
+        cn = random.choice(valid_cns)
+        dv_target = segment_data[cn]['total']
         
-        # Gömülü emisyon üretimi (Bazen iyi, bazen kötü performans)
-        k1 = uretim * random.uniform(0.5, 3.0) 
-        k2 = uretim * random.uniform(0.0, 0.5)
+        uretim = random.uniform(500, 5000)
+        # Emisyonu hedef sınırın %50 altı ile %150 üstü arasında rastgele belirle
+        toplam_emisyon = uretim * dv_target * random.uniform(0.5, 1.5)
+        
+        k1 = toplam_emisyon * 0.8
+        k2 = toplam_emisyon * 0.2
         
         firms.append({
-            'firma_id': f"SYN_{i}",
+            'firma_id': f"FIRM_{i:03d}",
+            'segment': segment,
             'cn_kodu': cn,
             'uretim_ton': uretim,
             'kapsam1_emisyon': k1,
             'kapsam2_emisyon': k2
         })
     return pd.DataFrame(firms)
-
-# =============================================================================
-# TEST VE ÇALIŞTIRMA (AKIL SAĞLIĞI KAPISI)
-# =============================================================================
-if __name__ == "__main__":
-    print("--- 1. Bilgi Tabanı Yükleniyor ---")
-    kb = KnowledgeBase()
-    kb.load_turkey_defaults()
-    
-    print("--- 2. Sentetik Firmalar Üretiliyor ---")
-    synthetic_data = generate_synthetic_firms(1000)
-    
-    print("--- 3. Hesap Motoru Test Ediliyor ---")
-    engine = CalculationEngine(kb)
-    
-    basarili = 0
-    hatali_yakalanan = 0
-    
-    for _, firm in synthetic_data.iterrows():
-        res = engine.calculate_embedded_emissions(firm.to_dict())
-        
-        if 'error' in res:
-            hatali_yakalanan += 1
-        else:
-            basarili += 1
-            
-    print(f"\n✅ Toplam Üretilen Firma: 1000")
-    print(f"📊 Başarıyla Hesaplanıp Sınırlarla Karşılaştırılan: {basarili}")
-    print(f"🛡️ Girdi Kapısında Yakalanan Bozuk/Sınır Vakalar: {hatali_yakalanan}")
-    print("\nFaz 1 Sentetik Motor Testi Başarılı. Hesaplanan veriler FANP algoritmasına beslenmeye hazır!")
