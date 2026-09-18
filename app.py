@@ -513,7 +513,7 @@ with tabs[8]:
                     color = '#ffcccc' if val is True else '#ccffcc'
                     return f'background-color: {color}'
                     
-                st.dataframe(df_sonuc.style.applymap(color_risk, subset=['riskli_mi']), use_container_width=True, hide_index=True)
+                st.dataframe(df_sonuc.style.map(color_risk, subset=['riskli_mi']), use_container_width=True, hide_index=True)
             
             st.success(f"✅ Girdi ve Akıl Sağlığı Kapılarından geçen {len(df_sonuc)} firmanın gömülü emisyonu hesaplandı ve AB sınırlarıyla eşleştirildi. (Resmi Gazete OJ L, 2025/2621 standartları uygulandı).")
             
