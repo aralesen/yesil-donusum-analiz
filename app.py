@@ -490,7 +490,7 @@ with tabs[8]:
             engine = hm.CalculationEngine(kb)
             
             # 50 sentetik firma ile test
-            syn_data = hm.generate_synthetic_firms(50) 
+            syn_data = hm.generate_synthetic_firms(kb, 50)
             
             sonuclar = []
             for _, firm in syn_data.iterrows():
