@@ -478,44 +478,83 @@ with tabs[7]:
 # ------------------------------------------------------------------ hesap motoru (teşhis)
 with tabs[8]:
     st.subheader("⚙️ Gömülü Emisyon ve Resmi Sınır Teşhisi")
-    st.caption("Ürün Anayasası Madde 7 ve 8 uyarınca: Deterministik hesap zinciri ve resmi CBAM varsayılan değerleri karşılaştırması.")
+    st.caption("Ürün Anayasası Faz 1: Sentetik Veri ile Deterministik Hesap Zinciri Testi (OJ L, 2025/2621 Sınırları Ön Değerlendirmesi)")
     
     try:
         import hesap_motoru as hm
+        import altair as alt
         
-        with st.spinner("Bilgi tabanı yükleniyor ve sentetik firmalar test ediliyor..."):
+        with st.spinner("Hesap motoru çalıştırılıyor ve veriler analiz ediliyor..."):
             kb = hm.KnowledgeBase()
             kb.load_turkey_defaults()
             engine = hm.CalculationEngine(kb)
             
-            # Arayüzü yormamak için 1000 yerine 50 firma üretiyoruz
+            # 50 sentetik firma ile test
             syn_data = hm.generate_synthetic_firms(50) 
             
-            c1, c2 = st.columns(2)
-            with c1:
-                st.markdown("#### 📥 1. Sentetik Firma Girdileri")
-                st.caption("Kapsam eşlemesi ve kütle/enerji dengesi sağlanan firmalar.")
-                st.dataframe(syn_data, use_container_width=True, hide_index=True)
-                
-            with c2:
-                st.markdown("#### 📤 2. Hesap ve Karşılaştırma Sonuçları")
-                st.caption("Firmanın emisyonu, AB resmi sınırının altında mı üstünde mi?")
-                sonuclar = []
-                for _, firm in syn_data.iterrows():
-                    res = engine.calculate_embedded_emissions(firm.to_dict())
-                    if 'error' not in res:
-                        sonuclar.append(res)
-                
-                df_sonuc = pd.DataFrame(sonuclar)
-                
-                # Risk durumunu renklendirmek için küçük bir ayar
-                def color_risk(val):
-                    color = '#ffcccc' if val is True else '#ccffcc'
-                    return f'background-color: {color}'
-                    
-                st.dataframe(df_sonuc.style.map(color_risk, subset=['riskli_mi']), use_container_width=True, hide_index=True)
+            sonuclar = []
+            for _, firm in syn_data.iterrows():
+                res = engine.calculate_embedded_emissions(firm.to_dict())
+                if 'error' not in res:
+                    sonuclar.append(res)
             
-            st.success(f"✅ Girdi ve Akıl Sağlığı Kapılarından geçen {len(df_sonuc)} firmanın gömülü emisyonu hesaplandı ve AB sınırlarıyla eşleştirildi. (Resmi Gazete OJ L, 2025/2621 standartları uygulandı).")
+            df_sonuc = pd.DataFrame(sonuclar)
+            
+            # --- 1. ÜST PANEL: ÖZET METRİKLER ---
+            toplam_firma = len(df_sonuc)
+            riskli_firma = int(df_sonuc['riskli_mi'].sum())
+            guvenli_firma = toplam_firma - riskli_firma
+            
+            col1, col2, col3 = st.columns(3)
+            col1.metric("🏭 İncelenen Tesis", f"{toplam_firma}")
+            col2.metric("⚠️ SKDM Vergi Riski Taşıyan", f"{riskli_firma} Tesis", delta="Sınır Üstü", delta_color="inverse")
+            col3.metric("✅ Uyumlu (Güvenli)", f"{guvenli_firma} Tesis", delta="Sınır Altı", delta_color="normal")
+            
+            st.divider()
+            
+            # --- 2. ORTA PANEL: GÖRSELLEŞTİRME ---
+            st.markdown("#### 📊 Ürün Koduna (CN) Göre Sınır Aşım Analizi")
+            st.caption("Sıfır çizgisi Avrupa Birliği sınırını temsil eder. Çizginin üstündeki çubuklar birim üretim başına düşen tonaj riskini gösterir.")
+            
+            chart_data = df_sonuc[['cn_kodu', 'fark', 'riskli_mi']].copy()
+            chart_data['Durum'] = chart_data['riskli_mi'].map({True: 'Riskli', False: 'Güvenli'})
+            
+            bar_chart = alt.Chart(chart_data).mark_circle(size=100).encode(
+                x=alt.X('cn_kodu:N', title='Ürün Kodu (CN)'),
+                y=alt.Y('fark:Q', title='Sınıra Göre Fark (Ton CO2e)'),
+                color=alt.Color('Durum:N', scale=alt.Scale(domain=['Riskli', 'Güvenli'], range=['#d62728', '#2ca02c'])),
+                tooltip=['cn_kodu', 'fark', 'Durum']
+            ).properties(height=300).interactive()
+            
+            st.altair_chart(bar_chart, use_container_width=True)
+            
+            # --- 3. ALT PANEL: DETAYLI TABLO ---
+            st.markdown("#### 📋 Detaylı Teşhis Raporu")
+            
+            # Sütun isimlerini ve formatları profesyonelleştirme
+            df_gosterim = df_sonuc.rename(columns={
+                'firma_id': 'Firma ID',
+                'cn_kodu': 'CN Kodu',
+                'gercek_toplam_emisyon': 'Gömülü Emisyon (Ton)',
+                'resmi_sinir': 'AB Sınırı',
+                'fark': 'Net Fark',
+                'riskli_mi': 'Durum'
+            })
+            
+            df_gosterim['Durum'] = df_gosterim['Durum'].map({True: '⚠️ Vergi Riski', False: '✅ Güvenli'})
+            
+            st.dataframe(
+                df_gosterim.style.format({
+                    'Gömülü Emisyon (Ton)': "{:.3f}",
+                    'AB Sınırı': "{:.3f}",
+                    'Net Fark': "{:.3f}"
+                }).map(lambda x: 'background-color: #ffeef0; color: #cc0000' if 'Riski' in str(x) else 'background-color: #eefbee; color: #006600', subset=['Durum']),
+                use_container_width=True, 
+                hide_index=True
+            )
+            
+            # --- 4. ÜRÜN ANAYASASI BİLDİRİMİ ---
+            st.info("📌 **Uyarı (Ürün Anayasası Madde 5):** Bu çıktı bir ön değerlendirme ve hazırlık dosyasıdır. Uyum belgesi yerine geçmez. Hukuki veya mali bir taahhüt içermez.")
             
     except ImportError:
-        st.error("⚠️ hesap_motoru.py dosyası bulunamadı. Dosyayı app.py ile aynı klasöre kaydettiğinizden emin olun.")
+        st.error("⚠️ hesap_motoru.py dosyası bulunamadı. Lütfen dosyayı yüklediğinizden emin olun.")
