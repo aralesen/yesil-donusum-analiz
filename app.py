@@ -187,7 +187,7 @@ with st.sidebar:
 other_label = "tezdeki yöntem" if res['other'] == 'bulanik' else "durulaştırılmış sentez"
 share_cols = [f'{a} payı (%)' for a in A]
 tabs = st.tabs(["Genel bakış", "Firmalar", "Yol haritası", "Firma ayrıntısı", "Strateji ve ölçek matrisi",
-                "Yöntem ve kaynakça", f"Veri raporu ({len(report)})", "💬 Yeşil Danışman (Chatbot)"])
+                "Yöntem ve kaynakça", f"Veri raporu ({len(report)})", "💬 Yeşil Danışman (Chatbot)", "⚙️ Emisyon Teşhisi"])
 
 # ------------------------------------------------------------------ genel bakış
 with tabs[0]:
@@ -475,3 +475,47 @@ with tabs[7]:
         with st.chat_message("assistant"):
             st.markdown(cevap)
         st.session_state.chat_messages.append({"role": "assistant", "content": cevap})
+# ------------------------------------------------------------------ hesap motoru (teşhis)
+with tabs[8]:
+    st.subheader("⚙️ Gömülü Emisyon ve Resmi Sınır Teşhisi")
+    st.caption("Ürün Anayasası Madde 7 ve 8 uyarınca: Deterministik hesap zinciri ve resmi CBAM varsayılan değerleri karşılaştırması.")
+    
+    try:
+        import hesap_motoru as hm
+        
+        with st.spinner("Bilgi tabanı yükleniyor ve sentetik firmalar test ediliyor..."):
+            kb = hm.KnowledgeBase()
+            kb.load_turkey_defaults()
+            engine = hm.CalculationEngine(kb)
+            
+            # Arayüzü yormamak için 1000 yerine 50 firma üretiyoruz
+            syn_data = hm.generate_synthetic_firms(50) 
+            
+            c1, c2 = st.columns(2)
+            with c1:
+                st.markdown("#### 📥 1. Sentetik Firma Girdileri")
+                st.caption("Kapsam eşlemesi ve kütle/enerji dengesi sağlanan firmalar.")
+                st.dataframe(syn_data, use_container_width=True, hide_index=True)
+                
+            with c2:
+                st.markdown("#### 📤 2. Hesap ve Karşılaştırma Sonuçları")
+                st.caption("Firmanın emisyonu, AB resmi sınırının altında mı üstünde mi?")
+                sonuclar = []
+                for _, firm in syn_data.iterrows():
+                    res = engine.calculate_embedded_emissions(firm.to_dict())
+                    if 'error' not in res:
+                        sonuclar.append(res)
+                
+                df_sonuc = pd.DataFrame(sonuclar)
+                
+                # Risk durumunu renklendirmek için küçük bir ayar
+                def color_risk(val):
+                    color = '#ffcccc' if val is True else '#ccffcc'
+                    return f'background-color: {color}'
+                    
+                st.dataframe(df_sonuc.style.applymap(color_risk, subset=['riskli_mi']), use_container_width=True, hide_index=True)
+            
+            st.success(f"✅ Girdi ve Akıl Sağlığı Kapılarından geçen {len(df_sonuc)} firmanın gömülü emisyonu hesaplandı ve AB sınırlarıyla eşleştirildi. (Resmi Gazete OJ L, 2025/2621 standartları uygulandı).")
+            
+    except ImportError:
+        st.error("⚠️ hesap_motoru.py dosyası bulunamadı. Dosyayı app.py ile aynı klasöre kaydettiğinizden emin olun.")
