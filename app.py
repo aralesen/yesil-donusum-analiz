@@ -326,12 +326,31 @@ with tabs[7]:
         with st.chat_message("user"):
             st.markdown(prompt_input)
 
-        # İleride karbon.llm modülüne bağlanacak nokta
-        cevap = m.advanced_green_consultant_reply(prompt_input, selected_firm_context, model, rag_engine)
+        # 1. Kontağı Çevir: LLM Motorunu Çağırıyoruz
+        import llm_motor
+        
+        # 2. Eğer RAG (PDF Tarayıcı) motoru aktifse, soruya uygun mevzuat metinlerini bul
+        rag_metinleri = ""
+        if rag_engine is not None:
+            rag_sonuclar = rag_engine.search(prompt_input, top_k=2)
+            if rag_sonuclar:
+                rag_metinleri = "\n".join([res['text'] for res in rag_sonuclar])
+        
+        # 3. Soru, mevzuat ve firma verisini maskeleyerek Yapay Zekaya gönder
+        with st.spinner("Yapay zeka (Gemini) yanıtı hazırlıyor..."):
+            cevap = llm_motor.danismana_sor(
+                soru=prompt_input,
+                mevzuat_parcalari=rag_metinleri,
+                firma_verisi=selected_firm_context,
+                provider=llm_provider,
+                api_key_input=api_key
+            )
 
         with st.chat_message("assistant"):
             st.markdown(cevap)
         st.session_state.chat_messages.append({"role": "assistant", "content": cevap})
+
+        # Eski kod silindi: cevap = m.advanced_green_consultant_reply(...)
 
 # ------------------------------------------------------------------ hesap motoru (teşhis)
 with tabs[8]:
