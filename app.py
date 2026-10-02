@@ -526,6 +526,7 @@ with tabs[8]:
     
     try:
         import hesap_motoru as hm
+        import altair as alt
         
         with st.spinner("Hesap motoru çalıştırılıyor..."):
             kb = hm.KnowledgeBase()
@@ -551,7 +552,7 @@ with tabs[8]:
                 
                 for _, row in df_input.iterrows():
                     firm_dict = row.dropna().to_dict()
-                    # CN Kodunu metne çevirip ondalıkları temizleyelim (ör. 72142000.0 -> 72142000)
+                    # CN Kodunu metne çevirip ondalıkları temizleyelim
                     if 'cn_kodu' in firm_dict:
                         firm_dict['cn_kodu'] = str(firm_dict['cn_kodu']).replace('.0', '').strip()
                     
@@ -616,7 +617,7 @@ with tabs[8]:
                 
                 df_gosterim['Durum'] = df_gosterim['Durum'].map({True: '⚠️ Vergi Riski', False: '✅ Güvenli'})
                 
-               st.dataframe(
+                st.dataframe(
                     df_gosterim.style.format({
                         'Tesis Gömülü Emisyon (t/t)': "{:.3f}",
                         'AB Sınırı (t/t)': "{:.3f}",
@@ -626,15 +627,9 @@ with tabs[8]:
                     hide_index=True
                 )
                 
-                st.info("📌 **Uyarı (Ürün Anayasası Madde 5):** Bu çıktı bir ön değerlendirme ve hazırlık dosyasıdır. Uyum belgesi yerine geçmez. Hukuki veya mali bir taahhüt içermez.")
+                st.info("📌 **Uyarı (Ürün Anayasası Madde 5):** Bu çıktı bir ön değerlendirme ve hazırlık dosyasıdır. Uyum belgesi yerine geçmez.")
                 
     except ImportError:
         st.error("⚠️ hesap_motoru.py dosyası bulunamadı. Lütfen dosyayı yüklediğinizden emin olun.")
     except Exception as e:
         st.error(f"Beklenmeyen bir hata oluştu: {e}")
-            
-            # --- 4. ÜRÜN ANAYASASI BİLDİRİMİ ---
-            st.info("📌 **Uyarı (Ürün Anayasası Madde 5):** Bu çıktı bir ön değerlendirme ve hazırlık dosyasıdır. Uyum belgesi yerine geçmez. Hukuki veya mali bir taahhüt içermez.")
-            
-    except ImportError:
-        st.error("⚠️ hesap_motoru.py dosyası bulunamadı. Lütfen dosyayı yüklediğinizden emin olun.")
