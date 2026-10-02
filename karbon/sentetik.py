@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Sentetik firma üreteci.
 
@@ -44,7 +43,7 @@ def firma_uret(rng, rota=None, surec_sayisi=None, oncul_olsun=None, elektrik_ef=
         proses_emisyon = toplam_dogrudan * proses_pay
         yakit_emisyon = toplam_dogrudan - proses_emisyon
         paylar = rng.dirichlet(np.ones(len(YAKITLAR)))
-        yakit_tj = {y: float(yakit_emisyon * p / ef) for (y, ef), p in zip(YAKITLAR.items(), paylar)}
+        yakit_tj = {y: float(yakit_emisyon * p / ef) for (y, ef), p in zip(YAKITLAR.items(), paylar, strict=True)}
 
         elektrik = float(rng.uniform(0.05, 0.6) * uretim)
         oncul_ton = {}
@@ -65,7 +64,7 @@ def firma_uret(rng, rota=None, surec_sayisi=None, oncul_olsun=None, elektrik_ef=
 
     tesis = Tesis(ad=f"tesis_{rng.integers(10_000)}", surecler=surecler, yakit_ef=dict(YAKITLAR),
                   elektrik_ef=elektrik_ef, oncul_see=oncul_see,
-                  oncul_kaynak={o: 'tedarikci' for o in oncul_see})
+                  oncul_kaynak=dict.fromkeys(oncul_see, 'tedarikci'))
     return tesis, gercek, rota
 
 

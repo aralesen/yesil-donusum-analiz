@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 IR (EU) 2025/2621 Ek I'in resmi PDF metninden varsayılan değer tablosunu çıkarır.
 

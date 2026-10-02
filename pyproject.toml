@@ -1,0 +1,14 @@
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+# E,W: biçim; F: gerçek hatalar (tanımsız ad, kullanılmayan değişken); I: içe aktarma sırası
+# UP: eski Python kalıpları; B: tuzaklar; SIM, C4, RET, ARG: sadeleştirme
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "C4", "RET", "ARG"]
+
+[tool.mypy]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

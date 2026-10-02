@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Ek I ayrıştırıcısının testleri.
 
 Testler resmi PDF'e bağlı değildir: metin parçaları elle kurulur. Resmi dosya varsa

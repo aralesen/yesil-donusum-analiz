@@ -47,6 +47,7 @@ Dosyanın sütun düzeni tanınmazsa `karbon.varsayilan_degerler.incele()` yapı
 | `karbon/sabitler.py` | Marj takvimi, rota kıyas değerleri, kaynak kayıtları, senaryo tanımı |
 | `karbon/motor.py` | Gömülü emisyon hesabı, tahsis, maliyet köprüsü |
 | `karbon/sentetik.py` | Doğru cevabı bilinen sentetik firma üreteci |
+| `karbon/danisman.py` | Belge araması (BM25) ve LLM ile kaynaklı cevap üretimi |
 | `karbon/ek_i.py` | IR (EU) 2025/2621 Ek I'in resmi PDF'inden varsayılan değerlerin çıkarılması |
 | `karbon/varsayilan_degerler.py` | Komisyon Excel dosyasının okunması ve doğrulanması |
 | `veri/ek1_varsayilan_degerler.csv` | Ek I'den çıkarılan tablo |
@@ -71,6 +72,39 @@ Zincirin tamamı deterministiktir. Bulanık mantık ve FANP yalnızca karar katm
 * SKDM yükümlülüğünün yıllara göre kademeli kapsama oranı
 * Türkiye elektrik şebekesi emisyon faktörünün resmi kaynağı ve yılı
 * AB ETS fiyat senaryolarının bandı
+
+## Danışman katmanı
+
+Soru cevap, anahtar kelime eşlemesi yerine BM25 sıralamasıyla çalışır: nadir kelimelere ağırlık verir, belge uzunluğunu hesaba katar ve sonuçları puanlayarak sıralar. Türkçe için büyük harf, aksan ve çekim ekleri eşitlenir; "ATIKLARIMIZI" sorusu "atık" geçen belgeyi bulur. Ek paket gerekmez, bu yüzden bulut kurulumunu ağırlaştırmaz.
+
+Cevap üretimi üç ilkeye dayanır:
+
+1. **LLM sayı üretmez.** Varsayılan değer, maliyet ve uygunluk gibi her sayı tablodan ya da hesap motorundan gelir; dil modeli yalnızca bunları anlatır.
+2. **Bağlam dışına çıkılmaz.** Sistem yönergesi uydurmayı yasaklar, kaynak göstermeyi ve bilinmeyeni "elimde yok" diye söylemeyi zorunlu kılar.
+3. **Model yoksa sistem susmaz.** Dil modeli bağlı değilse aynı bağlam kaynaklarıyla birlikte düz metin olarak verilir.
+
+Dil modeli, `(sistem, kullanıcı) -> metin` imzalı bir fonksiyon olarak dışarıdan verilir. Motor hangi sağlayıcının kullanıldığını bilmez; testlerde sahte bir fonksiyonla, ağ erişimi olmadan sınanır.
+
+```python
+from karbon import danisman as dn
+
+d = dn.Danisman(parcalar=dn.parcala(pdf_metni, 'skdm_rehberi.pdf'), llm=benim_llm_fonksiyonum)
+cevap = d.cevapla('AB alıcım emisyon verisi istiyor, ne yapmalıyım',
+                  firma={'Ölçek': 'Küçük', 'Şirket türü': 'limited şirket'},
+                  veriler=[dn.veri_parcasi_varsayilan_deger(sonuc, '72142000', 2026)])
+```
+
+## Kod kontrolleri
+
+```bash
+pip install ruff mypy bandit pytest
+ruff check .          # hatalar, kullanılmayan kod, içe aktarma düzeni, eski kalıplar
+mypy karbon           # tür tutarsızlıkları
+bandit -r karbon -lll # güvenlik bulguları (yüksek önem derecesi)
+python -m pytest -q
+```
+
+Ayarlar `pyproject.toml` içinde. Aynı dört kontrol GitHub Actions'ta her gönderimde çalışır (`.github/workflows/kontrol.yml`). Kurallar hepsi geçecek şekilde ayarlandı; yeni bir uyarı çıkarsa düzeltilir ya da gerekçesiyle kapatılır.
 
 ## Testler
 

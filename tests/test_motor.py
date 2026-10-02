@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Hesap motoru testleri. Çalıştırma: python -m pytest -q tests"""
 import os
 import sys
@@ -25,7 +24,8 @@ def test_bilinen_cevaba_yakinsar():
         hesap = motor.gomulu_emisyon(tesis)
         for ad, beklenen in gercek.items():
             for alan in ('dogrudan', 'dolayli', 'oncul', 'toplam'):
-                en_buyuk_fark = max(en_buyuk_fark, abs(hesap[ad][alan] - beklenen[alan]) / max(1e-9, beklenen['toplam']))
+                sapma = abs(hesap[ad][alan] - beklenen[alan]) / max(1e-9, beklenen['toplam'])
+                en_buyuk_fark = max(en_buyuk_fark, sapma)
     assert en_buyuk_fark < 1e-12, en_buyuk_fark
 
 
@@ -33,7 +33,7 @@ def test_bilesenlerin_toplami_tutar():
     rng = np.random.default_rng(1)
     for _ in range(200):
         tesis, _, _ = sentetik.firma_uret(rng)
-        for ad, s in motor.gomulu_emisyon(tesis).items():
+        for s in motor.gomulu_emisyon(tesis).values():
             assert np.isclose(s['toplam'], s['dogrudan'] + s['dolayli'] + s['oncul'], rtol=1e-12)
 
 

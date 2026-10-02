@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Gösterim: sentetik bir metal ihracatçısı için gömülü emisyon ve maliyet köprüsü.
 
@@ -11,11 +10,9 @@ ETS fiyatı ve kapsama oranı senaryo olarak verilir; motor bu sayıları kendi 
 """
 
 import argparse
-
-import numpy as np
-
 import os
 
+import numpy as np
 import pandas as pd
 
 from karbon import ek_i, motor, sabitler, sentetik

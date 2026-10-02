@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Varsayılan değer yükleyicisinin testleri. Dosyanın gerçek düzeni bilinmediği için
 yükleyici farklı düzenlerle sınanır: başlık adları değişik, üstte açıklama satırları,
 CN kodu boşluklu, virgüllü ondalık, birden fazla sayfa."""
@@ -6,7 +5,6 @@ import io
 import os
 import sys
 
-import numpy as np
 import pandas as pd
 import pytest
 

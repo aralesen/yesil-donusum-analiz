@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Komisyon'un varsayılan değer dosyasını okur ve tek biçimli bir tabloya çevirir.
 
