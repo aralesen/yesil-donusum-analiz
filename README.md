@@ -48,6 +48,7 @@ Dosyanın sütun düzeni tanınmazsa `karbon.varsayilan_degerler.incele()` yapı
 | `karbon/motor.py` | Gömülü emisyon hesabı, tahsis, maliyet köprüsü |
 | `karbon/sentetik.py` | Doğru cevabı bilinen sentetik firma üreteci |
 | `karbon/danisman.py` | Belge araması (BM25) ve LLM ile kaynaklı cevap üretimi |
+| `karbon/gizlilik.py` | Yer tutucu perdesi: firma verisi dil modeline gitmez |
 | `karbon/ek_i.py` | IR (EU) 2025/2621 Ek I'in resmi PDF'inden varsayılan değerlerin çıkarılması |
 | `karbon/varsayilan_degerler.py` | Komisyon Excel dosyasının okunması ve doğrulanması |
 | `veri/ek1_varsayilan_degerler.csv` | Ek I'den çıkarılan tablo |
@@ -93,6 +94,23 @@ cevap = d.cevapla('AB alıcım emisyon verisi istiyor, ne yapmalıyım',
                   firma={'Ölçek': 'Küçük', 'Şirket türü': 'limited şirket'},
                   veriler=[dn.veri_parcasi_varsayilan_deger(sonuc, '72142000', 2026)])
 ```
+
+## Gizlilik: yer tutucu perdesi
+
+Firmanın verisi dil modeline gönderilmez. Akış şöyle:
+
+1. Bağlam kurulurken her gerçek değer bir yer tutucuyla değiştirilir: `{D1}`, `{D2}`.
+2. Dışarı yalnızca yer tutuculu metin ve kamuya açık mevzuat parçaları çıkar.
+3. Cevap dönünce yer tutucular yerel olarak gerçek değerlerle doldurulur.
+4. Eşleme yalnızca bellekte, tek bir cevap süresince durur; blok bitince silinir. Diske yazılmaz, günlüğe düşmez.
+
+Dışarı çıkabilecek alanlar beyaz liste ile sınırlıdır (`IZINLI_ALANLAR`). Firma unvanı, yetkili adı, e-posta, telefon, kimlik ve vergi numarası gibi alanlar listede olmadığı için yanlışlıkla eklense bile gönderilmez; engellenen alan adı denetim kaydına yazılır.
+
+Kullanıcının serbest metni ayrıca süzülür: e-posta, telefon, kimlik numarası, vergi numarası, IBAN ve şirket unvanı kalıpları maskelenir. Katı modda art arda gelen iki büyük harfli kelime (kişi adı adayı) da maskelenir; varsayılan olarak kapalıdır, çünkü "Yeşil Mutabakat" gibi terimleri de gizler.
+
+Gönderimden hemen önce son bir emniyet kontrolü çalışır: giden metinde gerçek değerlerden biri geçiyorsa istek gönderilmez, hata verilir. Modelin uydurduğu, karşılığı olmayan yer tutucular da cevapta işaretlenir.
+
+Bu tasarımın pratik karşılığı, firmaya "rakamlarınız sunucumuzdan çıkmıyor" diyebilmektir. KVKK açısından da kişisel veri aktarımı olmadığı için yurt dışına aktarım rejimi bu akışa girmez.
 
 ## Kod kontrolleri
 

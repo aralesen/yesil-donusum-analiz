@@ -16,6 +16,8 @@ import unicodedata
 from collections import Counter
 from dataclasses import dataclass, field
 
+from .gizlilik import Perde
+
 TR_ETKISIZ = {
     've', 'veya', 'ile', 'için', 'bir', 'bu', 'şu', 'da', 'de', 'mi', 'mı', 'mu', 'mü', 'ne',
     'nasıl', 'neden', 'ama', 'çok', 'daha', 'en', 'olarak', 'olan', 'gibi', 'kadar', 'ise',
@@ -153,22 +155,40 @@ class Danisman:
         bolumler.extend(p for p, _ in bulunan)
         return bolumler, bulunan
 
-    def cevapla(self, soru, firma=None, veriler=None, k=3):
+    def cevapla(self, soru, firma=None, veriler=None, k=3, gizli=True):
+        """gizli=True iken firmanın değerleri dil modeline gitmez: bağlamda yer tutucu durur,
+        cevap döndükten sonra değerler yerel olarak yerleştirilir ve eşleme silinir."""
         bolumler, bulunan = self.baglam_kur(soru, firma, veriler, k)
-        belge_sayisi = sum(1 for b in bolumler if b.tur == 'belge')
-        veri_sayisi = sum(1 for b in bolumler if b.tur == 'veri')
-        if belge_sayisi == 0 and veri_sayisi == 0:
+        if not bolumler:
             return {'cevap': 'Bu konuda elimde doğrulanmış bilgi yok. Sorunuzu ürün kodu, ülke ya da '
                              'konu adıyla daraltabilir ya da bilgi havuzuna ilgili belgeyi ekleyebilirsiniz.',
-                    'kaynaklar': [], 'llm': False}
-        baglam = '\n\n'.join(f'[{b.kaynak}{" " + b.konum if b.konum else ""}]\n{b.metin}' for b in bolumler)
+                    'kaynaklar': [], 'llm': False, 'denetim': None}
         kaynaklar = [{'kaynak': b.kaynak, 'konum': b.konum, 'tur': b.tur} for b in bolumler]
         if self.llm is None:
             return {'cevap': self._yedek_cevap(bolumler), 'kaynaklar': kaynaklar, 'llm': False,
-                    'puanlar': [p for _, p in bulunan]}
-        kullanici = f'SORU:\n{soru}\n\nBAĞLAM:\n{baglam}'
-        return {'cevap': self.llm(SISTEM_YONERGESI, kullanici), 'kaynaklar': kaynaklar, 'llm': True,
-                'puanlar': [p for _, p in bulunan]}
+                    'puanlar': [p for _, p in bulunan], 'denetim': None}
+
+        with Perde() as perde:
+            if gizli:
+                soru_giden = perde.temizle_metin(soru)
+                parcalar = []
+                for b in bolumler:
+                    metin = b.metin if b.tur == 'belge' else perde.maskele_satir(b.metin)
+                    parcalar.append(f'[{b.kaynak}{" " + b.konum if b.konum else ""}]\n{metin}')
+            else:
+                soru_giden = soru
+                parcalar = [f'[{b.kaynak}{" " + b.konum if b.konum else ""}]\n{b.metin}' for b in bolumler]
+            baglam = '\n\n'.join(parcalar)
+            kullanici = f'SORU:\n{soru_giden}\n\nBAĞLAM:\n{baglam}'
+            denetim = perde.denetim_kaydi(kullanici)
+            if denetim['giden_metinde_gercek_deger_var_mi']:
+                raise RuntimeError('Giden metinde gerçek değer kaldı; gönderim durduruldu.')
+            ham = self.llm(SISTEM_YONERGESI, kullanici)
+            uydurma = perde.kalan_yer_tutucular(ham)
+            cevap = perde.geri_koy(ham)
+        return {'cevap': cevap, 'kaynaklar': kaynaklar, 'llm': True,
+                'puanlar': [p for _, p in bulunan], 'denetim': denetim,
+                'uydurulan_yer_tutucular': uydurma}
 
     @staticmethod
     def _yedek_cevap(bolumler):
