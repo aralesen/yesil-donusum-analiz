@@ -5,7 +5,6 @@ Yeşil Dönüşüm Karar Destek Sistemi (Bulanık ANP, SKDM Teşhisi ve LLM Dan�
 """
 
 from pathlib import Path
-
 import altair as alt
 import numpy as np
 import pandas as pd
@@ -156,7 +155,7 @@ with st.sidebar:
     
     # --- 4. LLM (YAPAY ZEKA) DANIŞMAN ---
     st.header("4. Yapay Zeka Danışman (LLM)")
-    llm_provider = st.selectbox("Sağlayıcı Seçin", ["Anthropic (Claude)", "OpenAI (GPT)", "Google (Gemini)"])
+    llm_provider = st.selectbox("Sağlayıcı Seçin", ["Google (Gemini)", "Anthropic (Claude)", "OpenAI (GPT)"])
     api_key = st.text_input("API Anahtarı", type="password", help="Chatbot cevapları için gereklidir. Girdiğiniz veriler, Ürün Anayasası 'Gizlilik Perdesi' kapsamında anonimleştirilerek işlenir.")
 
     st.divider()
@@ -326,18 +325,15 @@ with tabs[7]:
         with st.chat_message("user"):
             st.markdown(prompt_input)
 
-        # 1. Kontağı Çevir: LLM Motorunu Çağırıyoruz
         import llm_motor
         
-        # 2. Eğer RAG (PDF Tarayıcı) motoru aktifse, soruya uygun mevzuat metinlerini bul
         rag_metinleri = ""
         if rag_engine is not None:
             rag_sonuclar = rag_engine.search(prompt_input, top_k=2)
             if rag_sonuclar:
                 rag_metinleri = "\n".join([res['text'] for res in rag_sonuclar])
         
-        # 3. Soru, mevzuat ve firma verisini maskeleyerek Yapay Zekaya gönder
-        with st.spinner("Yapay zeka (Gemini) yanıtı hazırlıyor..."):
+        with st.spinner("Yapay zeka yanıtı hazırlıyor..."):
             cevap = llm_motor.danismana_sor(
                 soru=prompt_input,
                 mevzuat_parcalari=rag_metinleri,
@@ -349,8 +345,6 @@ with tabs[7]:
         with st.chat_message("assistant"):
             st.markdown(cevap)
         st.session_state.chat_messages.append({"role": "assistant", "content": cevap})
-
-        # Eski kod silindi: cevap = m.advanced_green_consultant_reply(...)
 
 # ------------------------------------------------------------------ hesap motoru (teşhis)
 with tabs[8]:
@@ -412,7 +406,6 @@ with tabs[8]:
             
             engine = hm.CalculationEngine(kb)
             
-            # Excel'den gelen sütun isimlerini motorun anladığı anahtarlara çeviren sözlük
             col_map = {
                 'Firma ID': 'firma_id', 'CN Kodu': 'cn_kodu', 'Üretim (Ton)': 'uretim_ton',
                 'Doğalgaz (TJ)': 'yakit_dogalgaz_tj', 'Kömür (TJ)': 'yakit_komur_tj',
@@ -423,17 +416,13 @@ with tabs[8]:
             
             sonuclar = []
             
-            # --- TESİS VERİSİ YÜKLEME KISMI ---
             if up_skdm is not None:
                 st.info("✅ Tesis verisi hesap motorundan geçiriliyor...")
                 df_input = pd.read_excel(up_skdm)
-                
-                # EKLEME: Hayalet/boş satırları siliyoruz
                 df_input = df_input.dropna(how='all') 
                 df_input = df_input.rename(columns=col_map)
                 
                 for _, row in df_input.iterrows():
-                    # EKLEME: Eğer o satırda üretim miktarı NaN (boş) veya 0 ise hiç hesaplamaya girme
                     if pd.isna(row.get('uretim_ton')) or row.get('uretim_ton') == 0:
                         continue
                         
