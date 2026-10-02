@@ -616,7 +616,7 @@ with tabs[8]:
                 
                 df_gosterim['Durum'] = df_gosterim['Durum'].map({True: '⚠️ Vergi Riski', False: '✅ Güvenli'})
                 
-                st.dataframe(
+               st.dataframe(
                     df_gosterim.style.format({
                         'Tesis Gömülü Emisyon (t/t)': "{:.3f}",
                         'AB Sınırı (t/t)': "{:.3f}",
@@ -626,7 +626,7 @@ with tabs[8]:
                     hide_index=True
                 )
                 
-                st.info("📌 **Uyarı (Ürün Anayasası Madde 5):** Bu çıktı bir ön değerlendirme ve hazırlık dosyasıdır. Uyum belgesi yerine geçmez.")
+                st.info("📌 **Uyarı (Ürün Anayasası Madde 5):** Bu çıktı bir ön değerlendirme ve hazırlık dosyasıdır. Uyum belgesi yerine geçmez. Hukuki veya mali bir taahhüt içermez.")
                 
     except ImportError:
         st.error("⚠️ hesap_motoru.py dosyası bulunamadı. Lütfen dosyayı yüklediğinizden emin olun.")
