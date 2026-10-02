@@ -49,6 +49,8 @@ Dosyanın sütun düzeni tanınmazsa `karbon.varsayilan_degerler.incele()` yapı
 | `karbon/sentetik.py` | Doğru cevabı bilinen sentetik firma üreteci |
 | `karbon/danisman.py` | Belge araması (BM25) ve LLM ile kaynaklı cevap üretimi |
 | `karbon/gizlilik.py` | Yer tutucu perdesi: firma verisi dil modeline gitmez |
+| `karbon/llm.py` | Dil modeli istemcisi (OpenAI, Anthropic, Google) |
+| `karbon/degerlendirme.py` | Deneme seti ve otomatik puanlama |
 | `karbon/ek_i.py` | IR (EU) 2025/2621 Ek I'in resmi PDF'inden varsayılan değerlerin çıkarılması |
 | `karbon/varsayilan_degerler.py` | Komisyon Excel dosyasının okunması ve doğrulanması |
 | `veri/ek1_varsayilan_degerler.csv` | Ek I'den çıkarılan tablo |
@@ -111,6 +113,49 @@ Kullanıcının serbest metni ayrıca süzülür: e-posta, telefon, kimlik numar
 Gönderimden hemen önce son bir emniyet kontrolü çalışır: giden metinde gerçek değerlerden biri geçiyorsa istek gönderilmez, hata verilir. Modelin uydurduğu, karşılığı olmayan yer tutucular da cevapta işaretlenir.
 
 Bu tasarımın pratik karşılığı, firmaya "rakamlarınız sunucumuzdan çıkmıyor" diyebilmektir. KVKK açısından da kişisel veri aktarımı olmadığı için yurt dışına aktarım rejimi bu akışa girmez.
+
+## Dil modeli bağlantısı
+
+Üç sağlayıcı için de aynı imza üretilir, ek paket gerekmez:
+
+```python
+from karbon import danisman as dn, llm
+
+istemci = llm.istemci_olustur('anthropic')      # ya da 'openai', 'google'
+d = dn.Danisman(parcalar=belgeler, llm=istemci) # istemci None ise sistem yedek yolla çalışır
+```
+
+**Anahtar koda yazılmaz.** Önce ortam değişkeni (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`), sonra Streamlit secrets okunur. Anahtar yoksa `istemci_olustur` None döner ve danışman dil modeli olmadan, bağlamı kaynaklarıyla veren yedek cevabı üretir.
+
+Sıcaklık varsayılan olarak sıfırdır: sayı anlatan bir asistanda yaratıcılık istenmez. Geçici hatalarda (429, 5xx) artan beklemeyle üç kez denenir, kalıcı hatada açık mesaj verilir.
+
+### Streamlit kurulumu
+
+Yerelde `.streamlit/secrets.toml` (depoya gönderilmez):
+
+```toml
+ANTHROPIC_API_KEY = "..."
+```
+
+Bulutta aynı anahtar uygulama ayarlarındaki Secrets bölümüne yazılır.
+
+## Deneme seti
+
+Sağlayıcı ve istem seçimi ölçerek yapılır. `karbon/degerlendirme.py` içinde dört türde soru var:
+
+| Tür | Adet | Ne ölçer |
+|---|---|---|
+| bilgi | 10 | Bağlamdaki cevabı doğru aktarıyor mu |
+| tuzak | 8 | Bağlamda olmayanı uyduruyor mu, yoksa bilmediğini söylüyor mu |
+| uygunluk | 3 | Firmanın şartı tutmuyorsa desteği önermiyor mu |
+| sayı | 3 | Sayıları aynen aktarıyor mu |
+
+```python
+from karbon import degerlendirme as dg
+print(dg.ozet(dg.calistir(danisman)))
+```
+
+Çıktı, türlere göre geçme sayısını ve geçemeyen her sorunun sebebini verir. İki sağlayıcı aynı setle karşılaştırılıp seçim buna göre yapılır. Bir yan bulgu: arama hiç belge bulamadığında sistem modele hiç sormadan reddediyor, yani bazı tuzaklar modele ulaşmadan elenmiş oluyor.
 
 ## Kod kontrolleri
 
