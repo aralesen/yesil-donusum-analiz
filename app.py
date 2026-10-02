@@ -334,7 +334,6 @@ with tabs[7]:
         st.session_state.chat_messages.append({"role": "assistant", "content": cevap})
 
 # ------------------------------------------------------------------ hesap motoru (teşhis)
-with # ------------------------------------------------------------------ hesap motoru (teşhis)
 with tabs[8]:
     st.subheader("⚙️ Gömülü Emisyon ve Resmi Sınır Teşhisi")
     st.caption("Ürün Anayasası Faz 2: Dinamik Bilgi Tabanı ve Deterministik Hesap Zinciri")
