@@ -45,14 +45,14 @@ def danismana_sor(soru, mevzuat_parcalari, firma_verisi, provider, api_key_input
     {mevzuat_parcalari}
     """
 
-try:
+    try:
         # 1. Deneme: En güncel Flash modelini çağır
         try:
             model = genai.GenerativeModel('gemini-1.5-flash-latest') 
             response = model.generate_content(kullanici_promptu)
-        # 2. Deneme: Eğer API anahtarın Flash'ı desteklemiyorsa, evrensel Pro modeline geç
+        # 2. Deneme: Desteklemiyorsa evrensel Pro modeline geç
         except Exception:
-            model = genai.GenerativeModel('gemini-pro')
+            model = genai.GenerativeModel('gemini-1.5-pro-latest')
             response = model.generate_content(kullanici_promptu)
         
         llm_ham_cevap = response.text
