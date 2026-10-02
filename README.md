@@ -1,107 +1,110 @@
-# Yeşil Dönüşüm Karar Destek Sistemi
+# Karbon Kararları Yönlendiricisi
 
-Türk geri dönüşüm ve imalat firmaları için yeşil dönüşüm stratejisi belirleyen bulanık ANP (FANP) tabanlı karar destek sistemi. Anket Excel dosyası yüklenir; her firma için dört strateji arasından en uygunu, kararın ne kadar sağlam olduğu, motivasyona göre stratejik yönlendirme ve ölçeğe özel aksiyon planı hesaplanır.
+AB'ye ihracat yapan sanayi firmalarının SKDM (CBAM) maruziyetini hesaplayan ve hangi adımın ne zaman atılacağını planlayan karar sistemi. Bu depo ürünün hesap çekirdeğidir. Ürünün tanımı, ilkeleri ve yol haritası "Ürün Anayasası" belgesindedir.
 
-## Stratejiler
+İlk müşteri: SKDM kapsamındaki demir çelik ve alüminyum ürünlerini AB'ye ihraç eden metal sektörü KOBİ'leri.
 
-| Kod | Strateji | Kapsam |
-|---|---|---|
-| A1 | Yeşil Üretim Teknolojileri | Yapay zeka, dijital ikizler, düşük karbonlu makineler |
-| A2 | Yeşil Tedarik ve Döngüsel Ekonomi | Geri dönüşüm, atık yönetimi, çevreci lojistik |
-| A3 | Yenilenebilir Enerji ve Yetkinlik | Güneş ve rüzgar enerjisi, ISO 50001, yeşil insan kaynakları eğitimleri |
-| A4 | Yasal Uyum ve Yönetişim | SKDM, emisyon izinleri, mevzuat uyumu |
+## Durum
 
-## Dosyalar
+| Katman | Durum |
+|---|---|
+| Gömülü emisyon hesabı (doğrudan, dolaylı, öncül) | Çalışıyor, 34 testle sınanıyor |
+| Sentetik firma üreteci | Çalışıyor |
+| Maliyet köprüsü (varsayılan değer ile gerçek veri farkı) | Çalışıyor |
+| Varsayılan değer dosyası yükleyicisi | Çalışıyor, resmi dosyayla henüz denenmedi |
+| Ek I varsayılan değerleri (resmi PDF'ten) | Çıkarıldı: 11.650 satır, 120 ülke, 267 GTİP kodu |
+| Kapsam listesi (Regulation 2023/956 Ek I) | Yok, sıradaki iş |
+| Önlem kataloğu ve yatırım planlayıcı | Yok |
+| FANP karar katmanı | Yok, tez deposundaki motordan taşınacak |
+
+## Kurulum ve çalıştırma
+
+```bash
+pip install numpy pandas openpyxl pytest
+python ornek.py
+python -m pytest -q tests
+```
+
+## Resmi verinin indirilmesi
+
+Varsayılan değerler telifli değil ama otomatik indirmeye kapalı. Şu dosya elle indirilip depoya `veri/` klasörüne konur:
+
+* **Varsayılan değerler (Excel):** Komisyon'un "Default values definitive period" dosyası. CBAM definitive regime sayfasındaki bağlantıdan indirilir. Yasal dayanak: IR (EU) 2025/2621, IR (EU) 2026/1740 ile düzeltilmiş.
+* **Kapsam listesi:** Regulation (EU) 2023/956 Ek I. GTİP kodları buradan çıkarılacak.
+
+İndirdikten sonra:
+
+```bash
+python ornek.py --varsayilan-dosya "veri/DVs as adopted_v20260204.xlsx" --cn 72142000 --ulke Türkiye
+```
+
+Dosyanın sütun düzeni tanınmazsa `karbon.varsayilan_degerler.incele()` yapıyı raporlar; sütunlar `eslem` argümanıyla elle verilir. Yükleyici hiçbir durumda tahmin üretmez.
+
+## Modüller
 
 | Dosya | İşi |
 |---|---|
-| `app.py` | Streamlit arayüzü; modele göre kendini kurar |
-| `fanp_motor.py` | Model tanımı, FANP hesabı, Excel okuma, sonuç dosyası ve yeşil danışman |
-| `rag_motor.py` | Danışman için PDF doküman araması (isteğe bağlı) |
-| `requirements-rag.txt` | PDF araması için ek paketler |
-| `tests/` | Algoritma ve arayüz testleri |
-| `requirements.txt` | Paketler |
-| `.streamlit/config.toml` | Tema ve yükleme sınırı |
+| `karbon/sabitler.py` | Marj takvimi, rota kıyas değerleri, kaynak kayıtları, senaryo tanımı |
+| `karbon/motor.py` | Gömülü emisyon hesabı, tahsis, maliyet köprüsü |
+| `karbon/sentetik.py` | Doğru cevabı bilinen sentetik firma üreteci |
+| `karbon/ek_i.py` | IR (EU) 2025/2621 Ek I'in resmi PDF'inden varsayılan değerlerin çıkarılması |
+| `karbon/varsayilan_degerler.py` | Komisyon Excel dosyasının okunması ve doğrulanması |
+| `veri/ek1_varsayilan_degerler.csv` | Ek I'den çıkarılan tablo |
+| `veri/ek1_turkiye.csv` | Aynı tablonun Türkiye satırları |
+| `ornek.py` | Uçtan uca gösterim |
+| `tests/` | Testler |
 
-## Çalıştırma
+## Hesap zinciri
 
-```bash
-pip install -r requirements.txt
-streamlit run app.py
-```
+1. **Faaliyet verisi:** süreç düzeyinde yakıt (TJ), elektrik (MWh), proses emisyonu, öncül malzeme (ton), üretim (ton).
+2. **Gömülü emisyon:** doğrudan (yakıt ve proses), dolaylı (elektrik), öncül (malzemenin kendi gömülü emisyonu). Ton başına değer, sürecin üretimine bölünerek bulunur.
+3. **Tahsis:** süreç düzeyinde ölçüm yoksa tesis toplamı üretim miktarına göre dağıtılır. Bu bir varsayımdır ve çıktıda böyle etiketlenir.
+4. **Varsayılan değerle karşılaştırma:** varsayılan değere marj eklenir (2026 %10, 2027 %20, 2028 ve sonrası %30; gübrede %1). Gerçek veride marj yoktur.
+5. **Maliyet köprüsü:** iki senaryonun farkı, yani veri toplamanın firmaya parasal değeri.
 
-Testler için `pip install pytest` ve ardından `python -m pytest -q tests`.
+Zincirin tamamı deterministiktir. Bulanık mantık ve FANP yalnızca karar katmanında, insan yargısı için kullanılır.
 
-Depoya `ornek_anket.xlsx` adında bir anket dosyası eklenirse kenar çubuğunda "Tez verisiyle aç" düğmesi çıkar.
+## Kaynaksız sayı yasağı
 
-## Veri girişi
+`karbon/sabitler.py` içindeki her sayının bir kaynağı ve doğrulama tarihi vardır. Kaynağı olmayan değerler `ACIK_SORULAR` listesindedir ve motor onları isteyince açık bir hata verir. Şu an açık olanlar:
 
-Kullanıcı yalnızca kriter ihtiyaç puanlarını ve ana başlık ağırlık puanlarını girer. Stratejiler (A1, A2, A3, A4) hiçbir şablonda yer almaz; uygulama bu puanlardan hesaplar ve sonuç olarak gösterir. Kenar çubuğunda iki slot vardır, her birinin kendi şablonu bulunur:
+* SKDM yükümlülüğünün yıllara göre kademeli kapsama oranı
+* Türkiye elektrik şebekesi emisyon faktörünün resmi kaynağı ve yılı
+* AB ETS fiyat senaryolarının bandı
 
-**Tek firma.** `Firma` sayfasında iki blok ve firma bilgileri:
+## Testler
 
-| Kriterler ve ihtiyaç puanları | Ana başlıklar ve ağırlık puanları |
-|---|---|
-| Kriter Kodu, Kriter Adı, Anket Başlığı, Küme Kodu, Puan | Küme Kodu, Küme Adı, Anket Başlığı, Ağırlık Puanı |
+* **Bilinen cevap:** 1000 sentetik firmada motorun sonucu, üretecin bildiği gerçek değerle makine hassasiyetinde aynı.
+* **Bileşenler:** doğrudan, dolaylı ve öncül toplamı, toplam değere eşit.
+* **Tekdüzelik:** yakıt artınca emisyon azalmaz.
+* **Ölçek bağımsızlığı:** bütün faaliyet iki katına çıkınca ton başına emisyon değişmez.
+* **Sıra bağımsızlığı:** süreçlerin sırası sonucu değiştirmez.
+* **Tahsis:** dağıtılan toplam, tesis toplamına eşit.
+* **Dayanıklılık:** %5 ölçüm gürültüsü sonucu %10'dan fazla bozmaz.
+* **Bozuk veri:** sıfır üretim, negatif yakıt, eksik emisyon faktörü gibi durumlar açık hata verir.
+* **Yükleyici:** farklı başlık adları, üstte açıklama satırları, boşluklu GTİP kodu, virgüllü ondalık ve çok sayfalı dosyalar okunur; tanınmayan dosyada uydurma yapılmaz.
 
-Ana başlıklar bloğunun altında Firma adı, Ölçek, Sektör ve Motivasyon alanları doldurulur.
+Üreteç ile motor kasten ayrı yazılmıştır: üreteç önce emisyonu seçip ona uyan yakıt miktarını türetir, motor ise yakıttan emisyona gider. Böylece test kendi kendini onaylamaz.
 
-**Çoklu firma.** `Firmalar` sayfası (Firma ID, Ölçek, Sektör, Motivasyon) ve `Puanlar` sayfası: tek bir ID sütunu, her ana başlığın kriterleri ayrı blokta ve en sonda ana başlık ağırlıkları. Boş bırakılan satırlar okunmaz.
+## Ek I'den çıkarılan veri
 
-Şablonlarda puan hücrelerine ölçek dışı değer girilmesini engelleyen doğrulama vardır. Eksik ya da ölçek dışı puanı olan firma analize alınmaz ve "Veri raporu" sekmesinde gösterilir.
+IR (EU) 2025/2621 Ek I, 2400 sayfalık resmi PDF'ten ayrıştırıldı:
 
-## Model
+* **11.650 satır**, 120 ülke, 267 GTİP kodu. Sektör dağılımı: demir çelik 6.667, gübre 2.456, alüminyum 1.632, çimento 801, hidrojen 94.
+* **Türkiye: 260 satır**, bunların 163'ünde değer var.
+* Okunamayan 268 satır yalnızca tamamen boş satırlardır (üç tire), veri taşımazlar.
 
-Kümeler, kriterler, stratejiler ve uzman değerlendirmesi `fanp_motor.py` içinde tanımlıdır (`DEFAULT_CLUSTERS`, `DEFAULT_CRITERIA`, `DEFAULT_ALTERNATIVES`). Motor bunlardan bağımsız yazılmıştır: küme, kriter ya da strateji sayısı değiştirildiğinde uygulama ve şablonlar kendiliğinden yeni yapıya göre kurulur. Tutarsız bir tanım (tekrarlanan kod, kümesiz kriter, kriteri olmayan küme, ölçek dışı uzman puanı) uygulama açılırken açık bir hata mesajıyla reddedilir.
+Ayrıştırma, verinin kendi iç kurallarıyla sınandı:
 
-## Excel biçimi
+* **Bileşen toplamı:** doğrudan artı dolaylı, toplam değere eşit. 710 satırda 0,01'e kadar sapma var; bu, resmi tablodaki üç haneli yuvarlamadan geliyor.
+* **Marj kuralı:** marjlı değerler, toplam değerin 1,10 / 1,20 / 1,30 katı olmalı (gübrede 1,01). 2026 sütununda sapma yok. 2027 ve 2028 sütunlarında beşer satır tutmuyor; bunlar Angola ve Arjantin çimento satırları ve resmi metnin kendi iç tutarsızlığı.
 
-Sayfa adları, sütun sırası ve başlık satırının yeri önemli değildir. Çoklu firma dosyasında puan sayfasının başlık satırında anket başlıkları ve bir `ID` sütunu, tek firma dosyasında kriter kodu, puan, küme kodu ve ağırlık puanı sütunları bulunmalıdır. Varsayılan model için anket başlıkları:
+**Önemli:** bu değerler IR (EU) 2025/2621'in ilk hâlinden geldi. Ek I ve Ek IV, IR (EU) 2026/1740 ile tamamen değiştirildi ve düzeltilmiş değerler 1 Ocak 2026'dan itibaren geçerli. Üretimde düzeltilmiş sürüm kullanılmalı; ayrıştırıcı aynı biçimi okuduğu için düzeltilmiş PDF de aynı kodla işlenir.
 
-* Ekonomik (C1): Inv. Cost, Oper. Savings, ROI, Access Finance, Market Demand
-* Çevresel (C2): Energy, GHG, Waste, Water, Hazardous
-* Sosyal (C3): H&S, Training, Community, Job Creation, Supplier Comp
-* Teknik (C4): TRL, Compatibility, Monitoring, Stability, Maintenance
-* Yasal ve politika (C5): Reg. Compliance, Legal Compat., Audit Risk, Incentives, EU/CBAM
-* Ana başlık ağırlıkları: Main_C1, Main_C2, Main_C3, Main_C4, Main_C5
+## Sıradaki işler
 
-## Yöntem
-
-Anket puanları ihtiyaç düzeyini gösterir: 1 yeterli yetkinlik ve asgari ihtiyaç, 9 kritik eksiklik ve azami destek ihtiyacıdır.
-
-1. Her puan üçgen bulanık sayıya çevrilir: l = max(1, x−1), m = x, u = min(9, x+1).
-2. Aynı kümedeki kriterlerden bulanık ikili karşılaştırma matrisi türetilir: ã_ij = (l_i/u_j, m_i/m_j, u_i/l_j), köşegen (1, 1, 1).
-3. Bulanık toplamsal normalizasyonla (sütun toplamına bölme ve satır ortalaması) 25 alt kriterin yerel öncelikleri ve 5 ana başlığın öncelikleri bulunur. Her matris için tutarlılık oranı (CR < 0,10) hesaplanır.
-4. Global ağırlık = ana başlık ağırlığı ⊗ yerel ağırlık.
-5. Uzmanların, her stratejinin kriterdeki ihtiyacı karşılama puanları bulanık olarak normalize edilir.
-6. Süpermatris kurulur (amaç, kriterler, stratejiler); limit süpermatristeki strateji öncelikleri bulanık skorlardır.
-7. Net skor, toplam integral değer yöntemiyle (λ = 0,5) bulunur: (l + 2m + u) / 4. En yüksek net skor en uygun stratejidir.
-8. Sektör geneli için tüm firmaların puanlarının geometrik ortalaması aynı modelden geçirilir.
-9. Sağlamlık analizinde her puan kendi bulanık aralığından örneklenir ve kazananın birinci kalma oranı ölçülür.
-
-Uygulamada karşılaştırma için, öncelikleri süpermatristen önce durulaştırıp normalize eden yöntem de seçilebilir. "Yöntem ve kaynakça" sekmesindeki geçerlilik testi iki yöntemin farkını gösterir.
-
-## Doğrulama
-
-`tests/` klasöründeki testler tek bir veri setine bağlı değildir; her testte küme, kriter ve strateji sayısı, puan ölçeği, bulanıklık genişliği ve iç bağımlılık rastgele seçilir:
-
-* Hesap, döngülerle yazılmış bağımsız bir referans uygulamayla ve tam süpermatris kuvvetiyle karşılaştırılır.
-* Kriterlerin, kümelerin ve stratejilerin sırası değişince sonuç değişmez.
-* Her kriterde başka bir stratejiden en az onun kadar puan alan strateji geride kalmaz; küme puanı artınca küme ağırlığı azalmaz.
-* Aynı anket farklı Excel düzenleriyle (karışık sütun sırası, birden çok ID bloğu, üstte boş satırlar, fazladan sütunlar, virgüllü ondalıklar) yazılır ve hep aynı veri okunur.
-* İki şablon doldurulup yüklendiğinde girilen puanlar birebir okunur; şablonlarda strateji sütunu bulunmadığı ayrıca sınanır.
-* Puanlar ölçeğin alt ve üst sınırındayken sağlamlık analizi ve sektör geneli hesabı hatasız çalışır.
-* Danışman doğru konuya eşlenir, kelime içinde yanlış eşleşme yapmaz, Türkçe büyük harfleri doğru işler ve yalnızca tanımlı kaynaklara başvurur.
-* Arayüz, varsayılan modelle ve 3 küme, 7 strateji, 1 ile 5 ölçekli bir modelle uçtan uca çalıştırılır.
-
-## Yeşil danışman
-
-"Yeşil Danışman" sekmesi, seçilen firmanın FANP sonucunu (kazanan strateji, ölçek, motivasyon) soruyla birleştirir. Soru beş konudan birine eşlenir: SKDM ve mevzuat, finansman ve teşvikler, döngüsel ekonomi ve atık, enerji verimliliği, dijitalleşme. Cevapta konunun kısa analizi, adım adım aksiyonlar, destek alınabilecek hizmet türleri ve kaynaklar yer alır.
-
-Eşleştirme kelime başından yapılır ve Türkçe ekleri kabul eder ("atık" terimi "atıklarımızı" ile eşleşir). Üç harf ve daha kısa terimler (AB, PE, PP, GES, IoT) yalnızca tam kelime olarak eşleşir; böylece "rekabet" içinde "ab" ya da "personel" içinde "pe" bulunmaz. Terimler ve metinler `CONSULTANT_INTENTS` içindedir.
-
-**PDF araması (isteğe bağlı).** `bilgi_havuzu/` klasörüne PDF'ler konur ve ek paketler kurulursa (`pip install -r requirements.txt -r requirements-rag.txt`), danışman cevabın sonuna bu belgelerden en ilgili iki bölümü ekler. Paketler kurulu değilse danışman PDF araması olmadan çalışır. Ek paketler PyTorch içerdiği için bulut ortamında kurulum süresi ve bellek kullanımı belirgin şekilde artar.
-
-## Metinleri değiştirmek
-
-Aksiyon planları `RECOMMENDATIONS_MAP`, danışman konuları `CONSULTANT_INTENTS`, ek kaynaklar `EXTENDED_REFERENCES`, motivasyon yönlendirmeleri `MOTIVATION_KEYS` ve `MOTIVATION_ADVICE`, sektör yorumları `COMMENTARY_TEMPLATES`, strateji açıklamaları `STRATEGY_DESCRIPTIONS`, kaynaklar `APA_REFERENCES` ve `REFERENCE_LINKS` içindedir. Hepsi strateji koduna göre anahtarlanır; yeni bir modelde karşılığı olmayan kodlar için genel metin kullanılır.
+1. Düzeltilmiş Ek I'in (IR (EU) 2026/1740) işlenmesi ve iki sürüm arasındaki farkın çıkarılması.
+2. Kapsam listesinin (Regulation (EU) 2023/956 Ek I) çıkarılması ve ürün kodu eşlemesi.
+3. Kapsama oranı ve şebeke emisyon faktörünün resmi kaynaktan girilmesi.
+4. Tesis veri toplama şablonu ve tedarikçi veri talebi formu.
+5. Önlem kataloğu, marjinal azaltım maliyet eğrisi ve yatırım planlayıcı.
