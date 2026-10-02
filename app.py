@@ -87,7 +87,33 @@ def hesapla(content, kind, sentez, sim):
 @st.cache_data(show_spinner=False)
 def sablon(kind):
     return m.single_firm_template_excel(MODEL) if kind == 'tek' else m.multi_firm_template_excel(MODEL)
-
+@st.cache_data(show_spinner=False)
+def skdm_sablon():
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+    import io
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Tesis Verisi'
+    headers = ['Firma ID', 'CN Kodu', 'Üretim (Ton)', 'Doğalgaz (TJ)', 'Kömür (TJ)', 
+               'Fuel Oil (TJ)', 'Proses Emisyonu (Ton CO2e)', 'Elektrik (MWh)', 
+               'Öncül Malzeme (Ton)', 'Öncül SEE (Ton CO2e/Ton)']
+    
+    # Başlıkları formatla
+    for k, h in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=k, value=h)
+        cell.font = Font(bold=True)
+        cell.fill = PatternFill('solid', fgColor='DDE7DF')
+        ws.column_dimensions[cell.column_letter].width = 20
+        
+    # Örnek bir satır ekleyelim (Kullanıcıya rehber olması için)
+    ornek_veri = ['TEST-01', '72142000', 5000, 10.5, 0, 0, 150, 2000, 100, 0.5]
+    for k, v in enumerate(ornek_veri, 1):
+        ws.cell(row=2, column=k, value=v)
+        
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
 
 # ------------------------------------------------------------------ kenar çubuğu
 with st.sidebar:
