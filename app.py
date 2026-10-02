@@ -334,6 +334,7 @@ with tabs[7]:
         st.session_state.chat_messages.append({"role": "assistant", "content": cevap})
 
 # ------------------------------------------------------------------ hesap motoru (teşhis)
+with # ------------------------------------------------------------------ hesap motoru (teşhis)
 with tabs[8]:
     st.subheader("⚙️ Gömülü Emisyon ve Resmi Sınır Teşhisi")
     st.caption("Ürün Anayasası Faz 2: Dinamik Bilgi Tabanı ve Deterministik Hesap Zinciri")
@@ -404,12 +405,20 @@ with tabs[8]:
             
             sonuclar = []
             
+            # --- TESİS VERİSİ YÜKLEME KISMI ---
             if up_skdm is not None:
                 st.info("✅ Tesis verisi hesap motorundan geçiriliyor...")
                 df_input = pd.read_excel(up_skdm)
+                
+                # EKLEME: Hayalet/boş satırları siliyoruz
+                df_input = df_input.dropna(how='all') 
                 df_input = df_input.rename(columns=col_map)
                 
                 for _, row in df_input.iterrows():
+                    # EKLEME: Eğer o satırda üretim miktarı NaN (boş) veya 0 ise hiç hesaplamaya girme
+                    if pd.isna(row.get('uretim_ton')) or row.get('uretim_ton') == 0:
+                        continue
+                        
                     firm_dict = row.dropna().to_dict()
                     if 'cn_kodu' in firm_dict:
                         firm_dict['cn_kodu'] = str(firm_dict['cn_kodu']).replace('.0', '').strip()
