@@ -15,6 +15,7 @@ import io
 st.set_page_config(page_title="Yeşil Dönüşüm Analiz Aracı", page_icon="🌱", layout="wide", initial_sidebar_state="expanded")
 
 import fanp_motor as m
+import llm_motor  # LLM Modülü hiza hatası vermemesi için en tepeye alındı
 
 try:
     from rag_motor import GreenRAG
@@ -324,8 +325,6 @@ with tabs[7]:
         st.session_state.chat_messages.append({"role": "user", "content": prompt_input})
         with st.chat_message("user"):
             st.markdown(prompt_input)
-
-        import llm_motor
         
         rag_metinleri = ""
         if rag_engine is not None:
