@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Yeşil Dönüşüm Karar Destek Sistemi (Bulanık ANP)
+Yeşil Dönüşüm Karar Destek Sistemi (Bulanık ANP ve SKDM Teşhisi)
 Çalıştırma:  streamlit run app.py
 """
 
@@ -42,6 +42,7 @@ ORNEK = Path(__file__).parent / "ornek_anket.xlsx"
 YONTEMLER = {"Tezdeki yöntem (bulanık sentez)": "bulanik",
              "Durulaştırılmış sentez (karşılaştırma)": "durulastirilmis"}
 SCALE_ORDER = ['Mikro', 'Küçük', 'Orta', 'Büyük', 'Bilinmiyor']
+XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
 def tr_pct(x, d=1):
@@ -72,8 +73,6 @@ st.markdown("""
 
 MODEL = m.default_model()
 TURLER = {"Tek firma": "tek", "Çoklu firma": "coklu"}
-XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-
 
 @st.cache_data(show_spinner=False)
 def hesapla(content, kind, sentez, sim):
@@ -83,12 +82,13 @@ def hesapla(content, kind, sentez, sim):
     result['n_input'] = len(survey)
     return result
 
-
 @st.cache_data(show_spinner=False)
 def sablon(kind):
     return m.single_firm_template_excel(MODEL) if kind == 'tek' else m.multi_firm_template_excel(MODEL)
+
 @st.cache_data(show_spinner=False)
 def skdm_sablon():
+    """SKDM tesis veri girişi için Excel şablonu oluşturur."""
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill
     import io
@@ -115,11 +115,14 @@ def skdm_sablon():
     wb.save(buf)
     return buf.getvalue()
 
+
 # ------------------------------------------------------------------ kenar çubuğu
 with st.sidebar:
     st.title("FANP Analiz Aracı")
     st.caption("Yeşil dönüşüm strateji belirleme")
-    st.header("Veri")
+    
+    # --- FANP Veri Yükleme ---
+    st.header("FANP Anket Verisi")
     tur_etiket = st.radio("Değerlendirme türü", list(TURLER), horizontal=True,
                           help="Tek firma: bir firmanın puanları. Çoklu firma: tüm firmaların puanları ve firma bilgileri.")
     kind = TURLER[tur_etiket]
@@ -139,6 +142,20 @@ with st.sidebar:
         st.session_state["content_coklu"] = ORNEK.read_bytes()
         st.session_state["name_coklu"] = "Tez anket verisi"
 
+    st.divider()
+
+    # --- SKDM Tesis Veri Yükleme ---
+    st.header("SKDM Emisyon Verisi")
+    st.caption("Firmanın yakıt, elektrik ve üretim verilerini hesap motoruna yükleyin.")
+    st.download_button("SKDM Veri Şablonu İndir", data=skdm_sablon(),
+                       file_name="skdm_tesis_verisi.xlsx",
+                       mime=XLSX_MIME, width="stretch", key="sablon_skdm")
+    
+    up_skdm = st.file_uploader("Tesis Verisi (Excel)", type=["xlsx", "xls"], key="upload_skdm")
+    
+    st.divider()
+
+    # --- Ayarlar ---
     st.header("Ayarlar")
     sentez = YONTEMLER[st.radio("Sentez yöntemi", list(YONTEMLER), index=0,
                                 help="Tezdeki yöntem l, m, u değerlerini sona kadar taşır ve net skoru (l + 2m + u) / 4 ile bulur. "
@@ -501,83 +518,120 @@ with tabs[7]:
         with st.chat_message("assistant"):
             st.markdown(cevap)
         st.session_state.chat_messages.append({"role": "assistant", "content": cevap})
+
 # ------------------------------------------------------------------ hesap motoru (teşhis)
 with tabs[8]:
     st.subheader("⚙️ Gömülü Emisyon ve Resmi Sınır Teşhisi")
-    st.caption("Ürün Anayasası Faz 1: Sentetik Veri ile Deterministik Hesap Zinciri Testi (OJ L, 2025/2621 Sınırları Ön Değerlendirmesi)")
+    st.caption("Ürün Anayasası Faz 2: Gerçek Tesis Verisi ile Deterministik Hesap Zinciri (OJ L 2025/2621 Sınırları)")
     
     try:
         import hesap_motoru as hm
-        import altair as alt
         
-        with st.spinner("Hesap motoru çalıştırılıyor ve veriler analiz ediliyor..."):
+        with st.spinner("Hesap motoru çalıştırılıyor..."):
             kb = hm.KnowledgeBase()
             kb.load_turkey_defaults()
             engine = hm.CalculationEngine(kb)
             
-            # 50 sentetik firma ile test
-            syn_data = hm.generate_synthetic_firms(kb, 50)
+            # Excel'den gelen sütun isimlerini motorun anladığı anahtarlara çeviren sözlük
+            col_map = {
+                'Firma ID': 'firma_id', 'CN Kodu': 'cn_kodu', 'Üretim (Ton)': 'uretim_ton',
+                'Doğalgaz (TJ)': 'yakit_dogalgaz_tj', 'Kömür (TJ)': 'yakit_komur_tj',
+                'Fuel Oil (TJ)': 'yakit_fuel_oil_tj', 'Proses Emisyonu (Ton CO2e)': 'proses_emisyon_ton',
+                'Elektrik (MWh)': 'elektrik_mwh', 'Öncül Malzeme (Ton)': 'oncul_ton',
+                'Öncül SEE (Ton CO2e/Ton)': 'oncul_see'
+            }
             
             sonuclar = []
-            for _, firm in syn_data.iterrows():
-                res = engine.calculate_embedded_emissions(firm.to_dict())
-                if 'error' not in res:
-                    sonuclar.append(res)
             
-            df_sonuc = pd.DataFrame(sonuclar)
+            # KULLANICI VERİ YÜKLEDİYSE:
+            if up_skdm is not None:
+                st.success("✅ Yüklenen tesis verisi hesap motorundan geçiriliyor...")
+                df_input = pd.read_excel(up_skdm)
+                df_input = df_input.rename(columns=col_map)
+                
+                for _, row in df_input.iterrows():
+                    firm_dict = row.dropna().to_dict()
+                    # CN Kodunu metne çevirip ondalıkları temizleyelim (ör. 72142000.0 -> 72142000)
+                    if 'cn_kodu' in firm_dict:
+                        firm_dict['cn_kodu'] = str(firm_dict['cn_kodu']).replace('.0', '').strip()
+                    
+                    res = engine.calculate_embedded_emissions(firm_dict)
+                    if 'error' not in res:
+                        sonuclar.append(res)
+                    else:
+                        st.error(f"Hata (Firma {firm_dict.get('firma_id', '?')}): {res['error']}")
             
-            # --- 1. ÜST PANEL: ÖZET METRİKLER ---
-            toplam_firma = len(df_sonuc)
-            riskli_firma = int(df_sonuc['riskli_mi'].sum())
-            guvenli_firma = toplam_firma - riskli_firma
+            # VERİ YÜKLENMEDİYSE DEMO (SENTETİK) ÇALIŞTIR:
+            else:
+                st.info("⚠️ Sol menüden SKDM tesis verisi yüklemediğiniz için sistem şu an sentetik (örnek) verilerle demo modunda çalışmaktadır.")
+                syn_data = hm.generate_synthetic_firms(kb, 30)
+                for _, row in syn_data.iterrows():
+                    res = engine.calculate_embedded_emissions(row.to_dict())
+                    if 'error' not in res:
+                        sonuclar.append(res)
             
-            col1, col2, col3 = st.columns(3)
-            col1.metric("🏭 İncelenen Tesis", f"{toplam_firma}")
-            col2.metric("⚠️ SKDM Vergi Riski Taşıyan", f"{riskli_firma} Tesis", delta="Sınır Üstü", delta_color="inverse")
-            col3.metric("✅ Uyumlu (Güvenli)", f"{guvenli_firma} Tesis", delta="Sınır Altı", delta_color="normal")
-            
-            st.divider()
-            
-            # --- 2. ORTA PANEL: GÖRSELLEŞTİRME ---
-            st.markdown("#### 📊 Ürün Koduna (CN) Göre Sınır Aşım Analizi")
-            st.caption("Sıfır çizgisi Avrupa Birliği sınırını temsil eder. Çizginin üstündeki çubuklar birim üretim başına düşen tonaj riskini gösterir.")
-            
-            chart_data = df_sonuc[['cn_kodu', 'fark', 'riskli_mi']].copy()
-            chart_data['Durum'] = chart_data['riskli_mi'].map({True: 'Riskli', False: 'Güvenli'})
-            
-            bar_chart = alt.Chart(chart_data).mark_circle(size=100).encode(
-                x=alt.X('cn_kodu:N', title='Ürün Kodu (CN)'),
-                y=alt.Y('fark:Q', title='Sınıra Göre Fark (Ton CO2e)'),
-                color=alt.Color('Durum:N', scale=alt.Scale(domain=['Riskli', 'Güvenli'], range=['#d62728', '#2ca02c'])),
-                tooltip=['cn_kodu', 'fark', 'Durum']
-            ).properties(height=300).interactive()
-            
-            st.altair_chart(bar_chart, use_container_width=True)
-            
-            # --- 3. ALT PANEL: DETAYLI TABLO ---
-            st.markdown("#### 📋 Detaylı Teşhis Raporu")
-            
-            # Sütun isimlerini ve formatları profesyonelleştirme
-            df_gosterim = df_sonuc.rename(columns={
-                'firma_id': 'Firma ID',
-                'cn_kodu': 'CN Kodu',
-                'gercek_toplam_emisyon': 'Gömülü Emisyon (Ton)',
-                'resmi_sinir': 'AB Sınırı',
-                'fark': 'Net Fark',
-                'riskli_mi': 'Durum'
-            })
-            
-            df_gosterim['Durum'] = df_gosterim['Durum'].map({True: '⚠️ Vergi Riski', False: '✅ Güvenli'})
-            
-            st.dataframe(
-                df_gosterim.style.format({
-                    'Gömülü Emisyon (Ton)': "{:.3f}",
-                    'AB Sınırı': "{:.3f}",
-                    'Net Fark': "{:.3f}"
-                }).map(lambda x: 'background-color: #ffeef0; color: #cc0000' if 'Riski' in str(x) else 'background-color: #eefbee; color: #006600', subset=['Durum']),
-                use_container_width=True, 
-                hide_index=True
-            )
+            if sonuclar:
+                df_sonuc = pd.DataFrame(sonuclar)
+                
+                # --- 1. ÜST PANEL: ÖZET METRİKLER ---
+                toplam_firma = len(df_sonuc)
+                riskli_firma = int(df_sonuc['riskli_mi'].sum())
+                guvenli_firma = toplam_firma - riskli_firma
+                
+                col1, col2, col3 = st.columns(3)
+                col1.metric("🏭 İncelenen Tesis", f"{toplam_firma}")
+                col2.metric("⚠ SKDM Vergi Riski Taşıyan", f"{riskli_firma} Tesis", delta="Sınır Üstü", delta_color="inverse")
+                col3.metric("✅ Uyumlu (Güvenli)", f"{guvenli_firma} Tesis", delta="Sınır Altı", delta_color="normal")
+                
+                st.divider()
+                
+                # --- 2. ORTA PANEL: GÖRSELLEŞTİRME ---
+                st.markdown("#### 📊 Ürün Koduna (CN) Göre Sınır Aşım Analizi")
+                st.caption("Sıfır çizgisi, marjsız resmi AB sınırını temsil eder. Üstündeki değerler emisyon fazlasıdır.")
+                
+                chart_data = df_sonuc[['cn_kodu', 'fark', 'riskli_mi']].copy()
+                chart_data['Durum'] = chart_data['riskli_mi'].map({True: 'Riskli', False: 'Güvenli'})
+                
+                bar_chart = alt.Chart(chart_data).mark_circle(size=120).encode(
+                    x=alt.X('cn_kodu:N', title='Ürün Kodu (CN)'),
+                    y=alt.Y('fark:Q', title='Sınıra Göre Net Fark (tCO2e/t)'),
+                    color=alt.Color('Durum:N', scale=alt.Scale(domain=['Riskli', 'Güvenli'], range=['#d62728', '#2ca02c'])),
+                    tooltip=['cn_kodu', alt.Tooltip('fark:Q', format='.3f'), 'Durum']
+                ).properties(height=300).interactive()
+                
+                st.altair_chart(bar_chart, use_container_width=True)
+                
+                # --- 3. ALT PANEL: DETAYLI TABLO ---
+                st.markdown("#### 📋 Detaylı Tesis Teşhis Raporu")
+                
+                df_gosterim = df_sonuc[['firma_id', 'cn_kodu', 'tanim', 'gercek_toplam_emisyon', 'resmi_sinir', 'fark', 'riskli_mi']].rename(columns={
+                    'firma_id': 'Firma ID',
+                    'cn_kodu': 'CN Kodu',
+                    'tanim': 'Ürün Tanımı',
+                    'gercek_toplam_emisyon': 'Tesis Gömülü Emisyon (t/t)',
+                    'resmi_sinir': 'AB Sınırı (t/t)',
+                    'fark': 'Net Fark',
+                    'riskli_mi': 'Durum'
+                })
+                
+                df_gosterim['Durum'] = df_gosterim['Durum'].map({True: '⚠️ Vergi Riski', False: '✅ Güvenli'})
+                
+                st.dataframe(
+                    df_gosterim.style.format({
+                        'Tesis Gömülü Emisyon (t/t)': "{:.3f}",
+                        'AB Sınırı (t/t)': "{:.3f}",
+                        'Net Fark': "{:.3f}"
+                    }).map(lambda x: 'background-color: #ffeef0; color: #cc0000' if 'Riski' in str(x) else 'background-color: #eefbee; color: #006600', subset=['Durum']),
+                    use_container_width=True, 
+                    hide_index=True
+                )
+                
+                st.info("📌 **Uyarı (Ürün Anayasası Madde 5):** Bu çıktı bir ön değerlendirme ve hazırlık dosyasıdır. Uyum belgesi yerine geçmez.")
+                
+    except ImportError:
+        st.error("⚠️ hesap_motoru.py dosyası bulunamadı. Lütfen dosyayı yüklediğinizden emin olun.")
+    except Exception as e:
+        st.error(f"Beklenmeyen bir hata oluştu: {e}")
             
             # --- 4. ÜRÜN ANAYASASI BİLDİRİMİ ---
             st.info("📌 **Uyarı (Ürün Anayasası Madde 5):** Bu çıktı bir ön değerlendirme ve hazırlık dosyasıdır. Uyum belgesi yerine geçmez. Hukuki veya mali bir taahhüt içermez.")
