@@ -1,165 +1,208 @@
-# -*- coding: utf-8 -*-
 """
-Yeşil Dönüşüm Deterministik Hesap Motoru & Sentetik Firma Üreteci
-Modüler Mimari: Sınır değerler statik değildir. Excel sekmeleri (Ülke/Şirket/Tesis) 
-dinamik olarak okunur ve varlık (Entity) bazlı hesaplama yapılır.
+SKDM gömülü emisyon hesap motoru.
+
+app.py'nin beklediği arayüz:
+    kb = KnowledgeBase(); kb.load_turkey_defaults()
+    engine = CalculationEngine(kb)
+    df = generate_synthetic_firms(kb, 50)
+    sonuc = engine.calculate_embedded_emissions(firma_dict)
+
+Veri kaynağı: IR (EU) 2025/2621 Ek I'den çıkarılan tablo (ek1_turkiye.csv). Dosya depoda
+yoksa motor açık bir hata verir; tahmini değerle çalışmaz.
+
+Not: Ek I ve Ek IV, IR (EU) 2026/1740 ile değiştirilmiştir. Düzeltilmiş tablo geldiğinde
+yalnızca CSV değişir, bu dosya aynı kalır.
+
+Birimler: yakıt TJ, elektrik MWh, üretim ton, emisyon ton CO2e.
 """
 
-import pandas as pd
-import numpy as np
-import random
+from __future__ import annotations
+
 import os
+from dataclasses import dataclass, field
 
-# =============================================================================
-# 1. BİLGİ TABANI (FAZ 0) - DİNAMİK EXCEL OKUYUCU
-# =============================================================================
+import numpy as np
+import pandas as pd
+
+VERI_ADAYLARI = ('ek1_turkiye.csv', 'veri/ek1_turkiye.csv',
+                 'ek1_varsayilan_degerler.csv', 'veri/ek1_varsayilan_degerler.csv')
+
+# Yakıt emisyon faktörleri, ton CO2e / TJ. Kaynak: IPCC 2006 varsayılan değerleri.
+YAKIT_EF = {'dogalgaz': 56.1, 'komur': 94.6, 'fuel_oil': 77.4}
+# Türkiye şebeke elektriği emisyon faktörü, ton CO2e / MWh. Resmi kaynakla değiştirilmeli.
+ELEKTRIK_EF = 0.42
+ELEKTRIK_EF_KAYNAK = 'yer tutucu; resmi şebeke emisyon faktörüyle değiştirilecek'
+
+# Çelik üretim rotası kıyas değerleri, ton CO2e / ton. Kaynak: IR (EU) 2025/2621.
+ROTA_KIYAS = {'BF-BOF': 1.370, 'DRI-EAF': 0.481, 'HURDA-EAF': 0.072}
+# Varsayılan değerlere eklenen marj. Kaynak: IR (EU) 2025/2621.
+MARJ = {2026: 0.10, 2027: 0.20}
+MARJ_2028_SONRASI = 0.30
+
+
+class VeriYok(FileNotFoundError):
+    """Resmi varsayılan değer tablosu bulunamadığında fırlatılır."""
+
+
+class VeriHatasi(ValueError):
+    """Firma verisi eksik ya da tutarsız olduğunda fırlatılır."""
+
+
+def marj(yil: int) -> float:
+    return MARJ.get(yil, MARJ_2028_SONRASI)
+
+
+@dataclass
 class KnowledgeBase:
-    def __init__(self, excel_path="DVs as adopted_v20260204 .xlsx"):
-        self.excel_path = excel_path
-        self.entities = []       # Excel'deki sekme isimleri (Ülkeler, Şirketler vb.)
-        self.parsed_data = {}    # Hafızaya alınan segment verileri
-        
-    def load_database(self):
-        """Excel'i tarar, meta sayfaları atlar ve geçerli segmentleri (sekmeleri) kaydeder."""
-        if not os.path.exists(self.excel_path):
-            raise FileNotFoundError(f"⚠️ Bilgi Tabanı bulunamadı: {self.excel_path} dosyası ana klasörde olmalı.")
-            
-        xls = pd.ExcelFile(self.excel_path)
-        # Okunmayacak meta/tanıtım sekmelerini filtrele
-        ignore_sheets = ['Overview', 'Version History', '_Other Countries and Territorie']
-        self.entities = [sheet for sheet in xls.sheet_names if sheet not in ignore_sheets]
-        
-        # Sadece Türkiye'yi baştan yükleyelim ki sistem hızlansın (Lazy Loading)
-        if 'Türkiye' in self.entities:
-            self.fetch_entity_data('Türkiye')
+    """Resmi varsayılan değerleri tutar. Hiçbir değeri kendisi üretmez."""
 
-    def fetch_entity_data(self, entity_name):
-        """İstenilen sekmedeki veriyi dinamik olarak okur, başlıkları bulur ve sözlüğe çevirir."""
-        if entity_name in self.parsed_data:
-            return self.parsed_data[entity_name]
-            
-        df = pd.read_excel(self.excel_path, sheet_name=entity_name, header=None)
-        
-        # Gerçek başlık satırını bul (İçinde 'CN Code' veya 'Description' geçen satır)
-        header_idx = 0
-        for i, row in df.iterrows():
-            row_str = " ".join([str(x).lower() for x in row.values])
-            if 'cn code' in row_str or 'description' in row_str:
-                header_idx = i
-                break
-                
-        # Sütun isimlerini ayarla ve temizle
-        df.columns = df.iloc[header_idx]
-        df = df.iloc[header_idx + 1:].dropna(how='all')
-        df.columns = [str(c).replace('\n', ' ').strip().lower() for c in df.columns]
-        
-        entity_dict = {}
-        # Sütun isimleri değişkendir, esnek bulmak için:
-        cn_col = next((c for c in df.columns if 'cn code' in c), None)
-        total_col = next((c for c in df.columns if 'total emissions' in c), None)
-        desc_col = next((c for c in df.columns if 'description' in c), None)
-        
-        if cn_col and total_col:
-            for _, row in df.iterrows():
-                cn_val = str(row[cn_col]).replace('.0', '').strip()
-                try:
-                    total_val = float(row[total_col])
-                    desc_val = str(row[desc_col]) if desc_col else "Tanımsız Ürün"
-                    if cn_val and cn_val != 'nan' and not np.isnan(total_val):
-                        entity_dict[cn_val] = {
-                            'desc': desc_val,
-                            'total': total_val
-                        }
-                except (ValueError, TypeError):
-                    continue
-                    
-        self.parsed_data[entity_name] = entity_dict
-        return entity_dict
+    tablo: pd.DataFrame | None = None
+    kaynak_dosya: str = ''
+    ulke: str = 'Türkiye'
 
-# =============================================================================
-# 2. HESAP ZİNCİRİ KAPILARI (MADDE 3 & 7) - BAĞLAM DUYARLI
-# =============================================================================
+    def load_turkey_defaults(self, yol: str | None = None) -> pd.DataFrame:
+        """Ek I tablosunu okur ve Türkiye satırlarını saklar."""
+        adaylar = [yol] if yol else [os.path.join(os.path.dirname(__file__), a) for a in VERI_ADAYLARI]
+        for aday in adaylar:
+            if aday and os.path.exists(aday):
+                tablo = pd.read_csv(aday, dtype={'cn_kodu': str})
+                if 'ulke' in tablo.columns:
+                    tablo = tablo[tablo['ulke'].astype(str).str.lower() == self.ulke.lower()]
+                self.tablo = tablo[tablo['toplam'].notna()].reset_index(drop=True)
+                self.kaynak_dosya = os.path.basename(aday)
+                if self.tablo.empty:
+                    raise VeriYok(f'{self.kaynak_dosya} içinde {self.ulke} için değer bulunamadı.')
+                return self.tablo
+        raise VeriYok('Varsayılan değer tablosu bulunamadı. ek1_turkiye.csv dosyasını depoya ekleyin.')
+
+    # Eski ve olası diğer adlar, çağrı yeri değişse de kırılmasın diye
+    load_defaults = load_turkey_defaults
+    yukle = load_turkey_defaults
+
+    @property
+    def hazir(self) -> bool:
+        return self.tablo is not None and not self.tablo.empty
+
+    def _kontrol(self):
+        if not self.hazir:
+            raise VeriYok('Önce load_turkey_defaults() çağrılmalı.')
+
+    def cn_kodlari(self, sektor: str | None = None) -> list:
+        self._kontrol()
+        t = self.tablo if sektor is None else self.tablo[self.tablo['sektor'] == sektor]
+        return sorted(t['cn_kodu'].astype(str).unique())
+
+    def varsayilan_deger(self, cn_kodu: str, yil: int = 2026) -> dict:
+        """Bir ürün için marjsız ve marjlı varsayılan değer."""
+        self._kontrol()
+        cn = ''.join(ch for ch in str(cn_kodu) if ch.isdigit())
+        satir = self.tablo[self.tablo['cn_kodu'].astype(str) == cn]
+        if satir.empty:
+            raise KeyError(f'{cn_kodu} için {self.ulke} varsayılan değeri tabloda yok.')
+        r = satir.iloc[0]
+        sutun = f'marjli_{min(max(yil, 2026), 2028)}'
+        marjli = float(r[sutun]) if sutun in satir.columns and pd.notna(r[sutun]) \
+            else float(r['toplam']) * (1 + marj(yil))
+        return {'cn_kodu': cn, 'tanim': r.get('tanim', ''), 'sektor': r.get('sektor', ''),
+                'rota_gostergesi': r.get('rota', ''), 'marjsiz': float(r['toplam']),
+                'marjli': marjli, 'yil': yil, 'kaynak': 'IR (EU) 2025/2621 Ek I'}
+
+    # app.py'nin okuduğu kısa ad
+    def get_default(self, cn_kodu, yil=2026):
+        return self.varsayilan_deger(cn_kodu, yil)
+
+
+@dataclass
 class CalculationEngine:
-    def __init__(self, knowledge_base):
-        self.kb = knowledge_base
-        
-    def validate_inputs(self, firm_data):
-        required = ['firma_id', 'segment', 'cn_kodu', 'uretim_ton', 'kapsam1_emisyon', 'kapsam2_emisyon']
-        for req in required:
-            if req not in firm_data or pd.isna(firm_data[req]):
-                return False, f"Eksik veri: {req}"
-        if firm_data['uretim_ton'] <= 0:
-            return False, "Üretim sıfır veya negatif."
-        if firm_data['segment'] not in self.kb.entities:
-            return False, f"Bilinmeyen Segment (Ülke/Şirket): {firm_data['segment']}"
-        return True, "Geçerli"
+    """Faaliyet verisinden gömülü emisyon hesaplar ve resmi varsayılan değerle karşılaştırır."""
 
-    def calculate_embedded_emissions(self, firm_data):
-        is_valid, msg = self.validate_inputs(firm_data)
-        if not is_valid:
-            return {'error': msg}
-            
-        segment = firm_data['segment']
-        cn = str(firm_data['cn_kodu'])
-        uretim = firm_data['uretim_ton']
-        
-        total_embedded = (firm_data['kapsam1_emisyon'] + firm_data['kapsam2_emisyon']) / uretim
-        
-        # Dinamik Segment (Ülke/Firma) üzerinden veri çek
-        segment_data = self.kb.fetch_entity_data(segment)
-        dv_total = segment_data.get(cn, {}).get('total', None)
-        urun_adi = segment_data.get(cn, {}).get('desc', 'Bilinmeyen Ürün')
-        
-        fark = (total_embedded - dv_total) if dv_total else None
-        
-        return {
-            'firma_id': firm_data['firma_id'],
-            'segment': segment,
-            'cn_kodu': cn,
-            'urun_adi': urun_adi[:30] + "..." if len(urun_adi) > 30 else urun_adi,
-            'gercek_toplam_emisyon': total_embedded,
-            'resmi_sinir': dv_total,
-            'fark': fark,
-            'riskli_mi': fark > 0 if fark is not None else False
-        }
+    kb: KnowledgeBase
+    elektrik_ef: float = ELEKTRIK_EF
+    yakit_ef: dict = field(default_factory=lambda: dict(YAKIT_EF))
 
-# =============================================================================
-# 3. SENTETİK FİRMA ÜRETECİ (MADDE 8) - GERÇEKÇİ ÖRNEKLEM
-# =============================================================================
-def generate_synthetic_firms(kb, n=50):
-    """Sistemin modülerliğini test etmek için rastgele ülkelerden/segmentlerden firma üretir."""
-    firms = []
-    
-    # Sadece verisi parse edilebilen segmentleri kullan (Örn: Türkiye, Germany)
-    available_segments = [s for s in kb.entities if len(kb.fetch_entity_data(s)) > 0]
-    if not available_segments:
-        return pd.DataFrame()
-        
-    for i in range(1, n + 1):
-        segment = random.choice(available_segments)
-        segment_data = kb.fetch_entity_data(segment)
-        
-        # O segmente ait rastgele bir CN Kodu seç
-        valid_cns = list(segment_data.keys())
-        if not valid_cns:
-            continue
-            
-        cn = random.choice(valid_cns)
-        dv_target = segment_data[cn]['total']
-        
-        uretim = random.uniform(500, 5000)
-        # Emisyonu hedef sınırın %50 altı ile %150 üstü arasında rastgele belirle
-        toplam_emisyon = uretim * dv_target * random.uniform(0.5, 1.5)
-        
-        k1 = toplam_emisyon * 0.8
-        k2 = toplam_emisyon * 0.2
-        
-        firms.append({
-            'firma_id': f"FIRM_{i:03d}",
-            'segment': segment,
-            'cn_kodu': cn,
-            'uretim_ton': uretim,
-            'kapsam1_emisyon': k1,
-            'kapsam2_emisyon': k2
-        })
-    return pd.DataFrame(firms)
+    def calculate_embedded_emissions(self, firma: dict, yil: int = 2026) -> dict:
+        """Döndürür: firma_id, cn_kodu, gercek_toplam_emisyon (ton CO2e/ton), resmi_sinir,
+        fark ve riskli_mi. Hata durumunda 'error' anahtarı döner; app.py bunu atlar."""
+        try:
+            uretim = float(firma.get('uretim_ton', 0) or 0)
+            if uretim <= 0:
+                raise VeriHatasi('üretim miktarı pozitif olmalı')
+            dogrudan = sum(float(firma.get(f'yakit_{y}_tj', 0) or 0) * ef for y, ef in self.yakit_ef.items())
+            dogrudan += float(firma.get('proses_emisyon_ton', 0) or 0)
+            dolayli = float(firma.get('elektrik_mwh', 0) or 0) * self.elektrik_ef
+            oncul = float(firma.get('oncul_ton', 0) or 0) * float(firma.get('oncul_see', 0) or 0)
+            if min(dogrudan, dolayli, oncul) < 0:
+                raise VeriHatasi('negatif faaliyet verisi')
+
+            see = (dogrudan + dolayli + oncul) / uretim
+            ref = self.kb.varsayilan_deger(firma['cn_kodu'], yil)
+            fark = see - ref['marjsiz']
+            return {
+                'firma_id': firma.get('firma_id', ''),
+                'cn_kodu': ref['cn_kodu'],
+                'tanim': ref['tanim'],
+                'uretim_ton': uretim,
+                'dogrudan_see': dogrudan / uretim,
+                'dolayli_see': dolayli / uretim,
+                'oncul_see': oncul / uretim,
+                'gercek_toplam_emisyon': see,
+                'resmi_sinir': ref['marjsiz'],
+                'varsayilan_marjli': ref['marjli'],
+                'fark': fark,
+                'riskli_mi': bool(fark > 0),
+                'kaynak': ref['kaynak'],
+            }
+        except (VeriHatasi, KeyError, ValueError, TypeError) as e:
+            return {'firma_id': firma.get('firma_id', ''), 'cn_kodu': firma.get('cn_kodu', ''),
+                    'error': str(e)}
+
+    def maliyet_koprusu(self, see_gercek: float, cn_kodu: str, ton: float, yil: int,
+                        ets_fiyat: float, kapsama_orani: float) -> dict:
+        """Varsayılan değerle ölçülmüş veri arasındaki maliyet farkı, yani veri toplamanın değeri.
+        ETS fiyatı ve kapsama oranı dışarıdan verilir; motor bu sayıları kendi uydurmaz."""
+        ref = self.kb.varsayilan_deger(cn_kodu, yil)
+        varsayilan = ton * ref['marjli'] * kapsama_orani * ets_fiyat
+        gercek = ton * see_gercek * kapsama_orani * ets_fiyat
+        return {'yil': yil, 'maliyet_varsayilan': varsayilan, 'maliyet_gercek': gercek,
+                'veri_toplamanin_degeri': varsayilan - gercek,
+                'marj': marj(yil), 'ets_fiyat': ets_fiyat, 'kapsama_orani': kapsama_orani}
+
+
+def generate_synthetic_firms(kb: KnowledgeBase, n: int = 50, tohum: int = 42,
+                             sektor: str = 'demir_celik') -> pd.DataFrame:
+    """Doğru cevabı bilinen sentetik tesisler üretir.
+
+    Üreteç önce hedef emisyon yoğunluğunu seçer, sonra ona uyan faaliyet verisini türetir.
+    Hesap motoru ise ters yönde, faaliyet verisinden emisyona gider; böylece test kendi
+    kendini onaylamaz.
+    """
+    rng = np.random.default_rng(tohum)
+    kodlar = kb.cn_kodlari(sektor) or kb.cn_kodlari()
+    if not kodlar:
+        raise VeriYok('Sentetik firma üretmek için tabloda ürün kodu yok.')
+
+    kayitlar = []
+    for i in range(n):
+        cn = kodlar[int(rng.integers(len(kodlar)))]
+        ref = kb.varsayilan_deger(cn)
+        # Gerçek tesisler varsayılan değerin altında da üstünde de olabilir
+        hedef = max(0.05, float(ref['marjsiz']) * float(rng.uniform(0.45, 1.35)))
+        uretim = float(rng.uniform(1_000, 60_000))
+        elektrik = float(rng.uniform(0.05, 0.6) * uretim)
+        oncul_ton = float(rng.uniform(0, 0.8) * uretim)
+        oncul_see = float(rng.uniform(0.3, 2.0)) if oncul_ton else 0.0
+
+        dolayli = elektrik * ELEKTRIK_EF
+        oncul = oncul_ton * oncul_see
+        dogrudan = max(0.0, hedef * uretim - dolayli - oncul)
+        proses = dogrudan * float(rng.uniform(0, 0.25))
+        yakit_emisyon = dogrudan - proses
+        paylar = rng.dirichlet(np.ones(len(YAKIT_EF)))
+        yakitlar = {f'yakit_{y}_tj': float(yakit_emisyon * p / ef)
+                    for (y, ef), p in zip(YAKIT_EF.items(), paylar, strict=True)}
+
+        kayitlar.append({'firma_id': f'F{i + 1:03d}', 'cn_kodu': cn, 'uretim_ton': uretim,
+                         'elektrik_mwh': elektrik, 'proses_emisyon_ton': proses,
+                         'oncul_ton': oncul_ton, 'oncul_see': oncul_see,
+                         'hedef_see': (dogrudan + dolayli + oncul) / uretim, **yakitlar})
+    return pd.DataFrame(kayitlar)

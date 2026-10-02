@@ -1,0 +1,261 @@
+ulke,sektor,cn_kodu,tanim,dogrudan,dolayli,toplam,marjli_2026,marjli_2027,marjli_2028,rota,beyan_marj_2026
+Türkiye,cimento,25070080,Calcined clay,,,,,,,,0.1
+Türkiye,cimento,25231000,White clinker,,,,,,,,0.1
+Türkiye,cimento,25231000,Grey clinker,,,,,,,,0.1
+Türkiye,cimento,25232100,White Portland cement,,,,,,,,0.1
+Türkiye,cimento,25232900,Grey Portland cement,,,,,,,,0.1
+Türkiye,cimento,25239000,White hydraulic cements,,,,,,,,0.1
+Türkiye,cimento,25239000,Grey hydraulic cements,,,,,,,,0.1
+Türkiye,cimento,25233000,Aluminous cement,1.82,0.14,1.95,2.145,2.34,2.535,,0.1
+Türkiye,gubre,28080000,Nitric acid; sulphonitric acids,2.68,0.03,2.72,2.747,2.747,2.747,,0.01
+Türkiye,gubre,28141000,Anhydrous ammonia,2.17,0.1,2.27,2.293,2.293,2.293,,0.01
+Türkiye,gubre,28142000,Ammonia in aqueous solution,0.65,0.03,0.68,0.687,0.687,0.687,,0.01
+Türkiye,gubre,28342100,Nitrate of potassium,2.17,0.05,2.22,2.242,2.242,2.242,,0.01
+Türkiye,gubre,31021012,"Urea in aqueous solution,",0.48,0.02,0.5,0.505,0.505,0.505,,0.01
+Türkiye,gubre,31021015,"Urea in aqueous solution,",0.79,0.02,0.82,0.828,0.828,0.828,,0.01
+Türkiye,gubre,31021019,"Urea, whether or not in aqueous",1.44,0.08,1.51,1.525,1.525,1.525,,0.01
+Türkiye,gubre,31021090,"Urea, whether or not in aqueous",1.4,0.08,1.48,1.495,1.495,1.495,,0.01
+Türkiye,gubre,31022100,Ammonium sulphate (excl. that in,0.63,0.06,0.68,0.687,0.687,0.687,,0.01
+Türkiye,gubre,31022900,Double salts and mixtures of,1.4,0.06,1.46,1.475,1.475,1.475,,0.01
+Türkiye,gubre,31023010,Ammonium nitrate in aqueous,1.64,0.05,1.69,1.707,1.707,1.707,,0.01
+Türkiye,gubre,31023090,Ammonium nitrate (excl. that in,2.53,0.07,2.6,2.626,2.626,2.626,,0.01
+Türkiye,gubre,31024010,Mixtures of ammonium nitrate with,2.16,0.07,2.23,2.252,2.252,2.252,,0.01
+Türkiye,gubre,31024090,Mixtures of ammonium nitrate with,2.16,0.07,2.23,2.252,2.252,2.252,,0.01
+Türkiye,gubre,31025000,Sodium nitrate (excl. that in tablets,4.19,0.05,4.24,4.282,4.282,4.282,,0.01
+Türkiye,gubre,31026000,Double salts and mixtures of,2.12,0.06,2.18,2.202,2.202,2.202,,0.01
+Türkiye,gubre,31028000,Mixtures of urea and ammonium,1.58,0.06,1.64,1.656,1.656,1.656,,0.01
+Türkiye,gubre,31029000,Mineral or chemical nitrogen,1.62,0.07,1.69,1.707,1.707,1.707,,0.01
+Türkiye,gubre,31051000,Mineral or chemical fertilisers of,0.8,0.06,0.86,0.869,0.869,0.869,,
+Türkiye,gubre,31052010,Mineral or chemical fertilisers,1.06,0.06,1.12,1.131,1.131,1.131,,
+Türkiye,gubre,31052090,Mineral or chemical fertilisers,0.72,0.05,0.77,0.778,0.778,0.778,,
+Türkiye,gubre,31053000,Diammonium,0.51,0.04,0.55,0.556,0.556,0.556,,
+Türkiye,gubre,31054000,Ammonium,0.32,0.03,0.36,0.364,0.364,0.364,,
+Türkiye,gubre,31055100,Other mineral or chemical fertilisers,1.46,0.08,1.54,1.555,1.555,1.555,,
+Türkiye,gubre,31055900,Other mineral or chemical fertilisers,0.58,0.08,0.66,0.667,0.667,0.667,,
+Türkiye,gubre,31059020,Mineral or chemical fertilisers,1.43,0.05,1.48,1.495,1.495,1.495,,
+Türkiye,gubre,31059080,Mineral or chemical fertilisers,0.73,0.04,0.76,0.768,0.768,0.768,,
+Türkiye,aluminyum,7601,Unwrought aluminium,1.7,,1.7,1.87,2.04,2.21,K,0.1
+Türkiye,aluminyum,7603,Aluminium powders and flakes,3.369,,3.369,3.706,4.043,4.38,K,0.1
+Türkiye,aluminyum,76041010,Bars and rods,3.741,,3.741,4.116,4.49,4.864,K,0.1
+Türkiye,aluminyum,76041090,Profiles,3.741,,3.741,4.116,4.49,4.864,K,0.1
+Türkiye,aluminyum,76042100,Hollow profiles,3.741,,3.741,4.116,4.49,4.864,K,0.1
+Türkiye,aluminyum,76042910,Bars and rods,3.741,,3.741,4.116,4.49,4.864,K,0.1
+Türkiye,aluminyum,76042990,Profiles,3.741,,3.741,4.116,4.49,4.864,K,0.1
+Türkiye,aluminyum,7605,Aluminium wire,3.424,,3.424,3.766,4.109,4.451,K,0.1
+Türkiye,aluminyum,7606,"Aluminium plates, sheets and strip,",2.714,,2.714,2.985,3.257,3.528,K,0.1
+Türkiye,aluminyum,7607,Aluminium foil (whether or not,3.071,,3.071,3.378,3.685,3.992,K,0.1
+Türkiye,aluminyum,7608,Aluminium tubes and pipes,2.754,,2.754,3.029,3.304,3.58,K,0.1
+Türkiye,aluminyum,76090000,Aluminium tube or pipe fittings (for,3.775,,3.775,4.153,4.53,4.908,K,0.1
+Türkiye,aluminyum,76101000,"Doors, windows and their frames",2.674,,2.674,2.941,3.209,3.476,K,0.1
+Türkiye,aluminyum,761090,Other,2.674,,2.674,2.941,3.209,3.476,K,0.1
+Türkiye,aluminyum,76109010,"Bridges and bridge-sections, towers",2.674,,2.674,2.941,3.209,3.476,K,0.1
+Türkiye,aluminyum,76109090,Other,2.674,,2.674,2.941,3.209,3.476,K,0.1
+Türkiye,aluminyum,76110000,"Aluminium reservoirs, tanks, vats",4.52,,4.52,4.972,5.424,5.876,K,0.1
+Türkiye,aluminyum,7612,"Aluminium casks, drums, cans,",4.52,,4.52,4.972,5.424,5.876,K,0.1
+Türkiye,aluminyum,76130000,Aluminium containers for,4.52,,4.52,4.972,5.424,5.876,K,0.1
+Türkiye,aluminyum,7614,"Stranded wire, cables, plaited bands",3.741,,3.741,4.116,4.49,4.864,K,0.1
+Türkiye,aluminyum,76161000,"Nails, tacks, staples (other than",3.06,,3.06,3.366,3.672,3.978,K,0.1
+Türkiye,aluminyum,76169100,"Cloth, grill, netting and fencing, of",3.06,,3.06,3.366,3.672,3.978,K,0.1
+Türkiye,aluminyum,76169910,Cast,3.06,,3.06,3.366,3.672,3.978,K,
+Türkiye,aluminyum,76169990,Other,3.06,,3.06,3.366,3.672,3.978,K,
+Türkiye,hidrojen,28041000,Hydrogen,10.82,,10.82,11.902,12.984,14.066,,0.1
+Türkiye,demir_celik,26011200,Agglomerated iron ores and,0.18,0.03,0.21,0.231,0.252,0.273,,0.1
+Türkiye,demir_celik,7201,"Pig iron and spiegeleisen, in pigs,",1.85,,1.85,2.035,2.22,2.405,,0.1
+Türkiye,demir_celik,720211,"Ferro-manganese, containing by",1.69,,1.69,1.859,2.028,2.197,,0.1
+Türkiye,demir_celik,720219,"Ferro-manganese, containing by",,,,,,,,0.1
+Türkiye,demir_celik,720241,"Ferro-chromium, containing by",2.35,,2.35,2.585,2.82,3.055,,0.1
+Türkiye,demir_celik,720249,"Ferro-chromium, containing by",,,,,,,,0.1
+Türkiye,demir_celik,72026000,Ferro-nickel,3.48,,3.48,3.828,4.176,4.524,,0.1
+Türkiye,demir_celik,7203,Ferrous products obtained by direct,,,,,,,,0.1
+Türkiye,demir_celik,7205,"Granules and powders of pig iron,",1.89,,1.89,2.079,2.268,2.457,C,0.1
+Türkiye,demir_celik,72061000,"Ingots, of iron and non-alloy steel",1.96,,1.96,2.156,2.352,2.548,C,0.1
+Türkiye,demir_celik,72069000,"Iron and non-alloy steel, in puddled",1.96,,1.96,2.156,2.352,2.548,C,0.1
+Türkiye,demir_celik,72071111,"Semi-finished products, of non-alloy",2.31,,2.31,2.541,2.772,3.003,C,0.1
+Türkiye,demir_celik,72071114,"Semi-finished products, of iron or",2.31,,2.31,2.541,2.772,3.003,C,0.1
+Türkiye,demir_celik,72071116,"Semi-finished products, of iron or",2.31,,2.31,2.541,2.772,3.003,C,0.1
+Türkiye,demir_celik,72071190,Semi-finished products of iron or,3.087,,3.087,3.396,3.705,4.014,C,0.1
+Türkiye,demir_celik,72071210,Semi-finished products of iron or,2.31,,2.31,2.541,2.772,3.003,C,0.1
+Türkiye,demir_celik,72071290,Semi-finished products of iron or,3.087,,3.087,3.396,3.705,4.014,C,0.1
+Türkiye,demir_celik,72071912,"Semi-finished products, of iron or",2.31,,2.31,2.541,2.772,3.003,C,0.1
+Türkiye,demir_celik,72071919,Semi-finished products of iron or,3.087,,3.087,3.396,3.705,4.014,C,0.1
+Türkiye,demir_celik,72071980,Semi-finished products of iron or,2.31,,2.31,2.541,2.772,3.003,C,0.1
+Türkiye,demir_celik,72072011,"Semi-finished products, of non-alloy",2.31,,2.31,2.541,2.772,3.003,C,0.1
+Türkiye,demir_celik,72072015,Semi-finished products of iron or,2.31,,2.31,2.541,2.772,3.003,C,0.1
+Türkiye,demir_celik,72072017,Semi-finished products of iron or,2.31,,2.31,2.541,2.772,3.003,C,0.1
+Türkiye,demir_celik,72072019,Semi-finished products of iron or,3.087,,3.087,3.396,3.705,4.014,C,0.1
+Türkiye,demir_celik,72072032,Semi-finished products of iron or,2.31,,2.31,2.541,2.772,3.003,C,0.1
+Türkiye,demir_celik,72072039,Semi-finished products of iron or,3.087,,3.087,3.396,3.705,4.014,C,0.1
+Türkiye,demir_celik,72072052,Semi-finished products of iron or,2.31,,2.31,2.541,2.772,3.003,C,0.1
+Türkiye,demir_celik,72072059,Semi-finished products of iron or,3.087,,3.087,3.396,3.705,4.014,C,0.1
+Türkiye,demir_celik,72072080,Semi-finished products of iron or,2.31,,2.31,2.541,2.772,3.003,C,0.1
+Türkiye,demir_celik,7208,Flat-rolled products of iron or non-,2.428,,2.428,2.67,2.913,3.156,C,0.1
+Türkiye,demir_celik,7209,Flat-rolled products of iron or non-,2.51,,2.51,2.761,3.012,3.263,C,0.1
+Türkiye,demir_celik,7210,Flat-rolled products of iron or non-,2.51,,2.51,2.761,3.012,3.263,C,0.1
+Türkiye,demir_celik,72111300,Flat-rolled products of iron or non-,2.428,,2.428,2.67,2.913,3.156,C,0.1
+Türkiye,demir_celik,72111400,Flat-rolled products of iron or non-,2.428,,2.428,2.67,2.913,3.156,C,0.1
+Türkiye,demir_celik,72111900,Flat-rolled products of iron or non-,2.428,,2.428,2.67,2.913,3.156,C,0.1
+Türkiye,demir_celik,721123,Flat-rolled products of iron or non-,2.51,,2.51,2.761,3.012,3.263,C,0.1
+Türkiye,demir_celik,72112900,Flat-rolled products of iron or non-,2.51,,2.51,2.761,3.012,3.263,C,0.1
+Türkiye,demir_celik,721190,Flat-rolled products of iron or non-,2.51,,2.51,2.761,3.012,3.263,C,0.1
+Türkiye,demir_celik,7212,Flat-rolled products of iron or non-,2.51,,2.51,2.761,3.012,3.263,C,0.1
+Türkiye,demir_celik,7213,Bars and rods of iron or non-alloy,2.31,,2.31,2.541,2.772,3.003,C,0.1
+Türkiye,demir_celik,72141000,"Bars and rods, of iron or non-alloy",3.087,,3.087,3.396,3.705,4.014,C,0.1
+Türkiye,demir_celik,72142000,"Bars and rods, of iron or non-alloy",2.31,,2.31,2.541,2.772,3.003,C,0.1
+Türkiye,demir_celik,72143000,"Bars and rods, of non-alloy free-",2.31,,2.31,2.541,2.772,3.003,C,0.1
+Türkiye,demir_celik,721491,"Bars and rods, of iron or non-alloy",2.31,,2.31,2.541,2.772,3.003,C,0.1
+Türkiye,demir_celik,721499,"Bars and rods, of iron or non-alloy",2.31,,2.31,2.541,2.772,3.003,C,0.1
+Türkiye,demir_celik,7215,"Bars and rods, of iron or non-alloy",2.31,,2.31,2.541,2.772,3.003,C,0.1
+Türkiye,demir_celik,7216,"Angles, shapes and sections of iron",2.31,,2.31,2.541,2.772,3.003,C,0.1
+Türkiye,demir_celik,721710,"Wire of iron or non-alloy steel, in",2.31,,2.31,2.541,2.772,3.003,C,0.1
+Türkiye,demir_celik,721720,"Wire of iron or non-alloy steel, in",2.31,,2.31,2.541,2.772,3.003,C,0.1
+Türkiye,demir_celik,721730,"Wire of iron or non-alloy steel, in",2.31,,2.31,2.541,2.772,3.003,C,0.1
+Türkiye,demir_celik,721790,"Wire of iron or non-alloy steel, in",2.31,,2.31,2.541,2.772,3.003,C,0.1
+Türkiye,demir_celik,72181000,"Steel, stainless, in ingots and other",5.97,,5.97,6.567,7.164,7.761,,0.1
+Türkiye,demir_celik,721891,Semi-finished products of stainless,5.47,,5.47,6.017,6.564,7.111,,0.1
+Türkiye,demir_celik,72189911,Semi-finished products of stainless,5.47,,5.47,6.017,6.564,7.111,,0.1
+Türkiye,demir_celik,72189919,Semi-finished products of stainless,5.97,,5.97,6.567,7.164,7.761,,0.1
+Türkiye,demir_celik,72189920,Semi-finished products of stainless,5.47,,5.47,6.017,6.564,7.111,,0.1
+Türkiye,demir_celik,72189980,Semi-finished products of stainless,5.97,,5.97,6.567,7.164,7.761,,0.1
+Türkiye,demir_celik,72191100,Flat-rolled products of stainless,5.47,,5.47,6.017,6.564,7.111,,0.1
+Türkiye,demir_celik,721912,Flat-rolled products of stainless,5.47,,5.47,6.017,6.564,7.111,,0.1
+Türkiye,demir_celik,721913,Flat-rolled products of stainless,5.47,,5.47,6.017,6.564,7.111,,0.1
+Türkiye,demir_celik,721914,Flat-rolled products of stainless,5.47,,5.47,6.017,6.564,7.111,,0.1
+Türkiye,demir_celik,721921,Flat-rolled products of stainless,5.47,,5.47,6.017,6.564,7.111,,0.1
+Türkiye,demir_celik,721922,Flat-rolled products of stainless,5.47,,5.47,6.017,6.564,7.111,,0.1
+Türkiye,demir_celik,72192300,Flat-rolled products of stainless,5.47,,5.47,6.017,6.564,7.111,,0.1
+Türkiye,demir_celik,72192400,Flat-rolled products of stainless,5.47,,5.47,6.017,6.564,7.111,,0.1
+Türkiye,demir_celik,72193100,Flat-rolled products of stainless,5.54,,5.54,6.094,6.648,7.202,,0.1
+Türkiye,demir_celik,721932,Flat-rolled products of stainless,5.54,,5.54,6.094,6.648,7.202,,0.1
+Türkiye,demir_celik,721933,Flat-rolled products of stainless,5.54,,5.54,6.094,6.648,7.202,,0.1
+Türkiye,demir_celik,721934,Flat-rolled products of stainless,5.54,,5.54,6.094,6.648,7.202,,0.1
+Türkiye,demir_celik,721935,Flat-rolled products of stainless,5.54,,5.54,6.094,6.648,7.202,,0.1
+Türkiye,demir_celik,721990,Flat-rolled products of stainless,5.54,,5.54,6.094,6.648,7.202,,0.1
+Türkiye,demir_celik,72201100,Flat-rolled products of stainless,5.47,,5.47,6.017,6.564,7.111,,0.1
+Türkiye,demir_celik,72201200,Flat-rolled products of stainless,5.47,,5.47,6.017,6.564,7.111,,0.1
+Türkiye,demir_celik,722020,Flat-rolled products of stainless,5.54,,5.54,6.094,6.648,7.202,,0.1
+Türkiye,demir_celik,722090,Flat-rolled products of stainless,5.54,,5.54,6.094,6.648,7.202,,0.1
+Türkiye,demir_celik,7221,"Bars and rods of stainless steel, hot-",5.31,,5.31,5.841,6.372,6.903,,0.1
+Türkiye,demir_celik,722211,"Bars and rods of stainless steel, only",5.31,,5.31,5.841,6.372,6.903,,0.1
+Türkiye,demir_celik,722219,"Bars and rods of stainless steel, only",5.31,,5.31,5.841,6.372,6.903,,0.1
+Türkiye,demir_celik,722220,Other bars and rods of stainless,5.31,,5.31,5.841,6.372,6.903,,0.1
+Türkiye,demir_celik,722230,Other bars and rods of stainless,5.97,,5.97,6.567,7.164,7.761,,0.1
+Türkiye,demir_celik,722240,"Angles, shapes and sections of",5.31,,5.31,5.841,6.372,6.903,,0.1
+Türkiye,demir_celik,722300,"Wire of stainless steel, in coils (excl.",5.31,,5.31,5.841,6.372,6.903,,0.1
+Türkiye,demir_celik,722410,"Steel, alloy, other than stainless, in",6.95,,6.95,7.645,8.34,9.035,F,0.1
+Türkiye,demir_celik,72249002,Semi-finished products of tool steel,6.45,,6.45,7.095,7.74,8.385,F,0.1
+Türkiye,demir_celik,72249003,Semi-finished products of high-,6.45,,6.45,7.095,7.74,8.385,F,0.1
+Türkiye,demir_celik,72249005,Semi-finished products of steel,6.45,,6.45,7.095,7.74,8.385,F,0.1
+Türkiye,demir_celik,72249007,Semi-finished products of alloy steel,6.45,,6.45,7.095,7.74,8.385,F,0.1
+Türkiye,demir_celik,72249014,Semi-finished products of alloy steel,6.45,,6.45,7.095,7.74,8.385,F,0.1
+Türkiye,demir_celik,72249018,Semi-finished products of alloy steel,6.95,,6.95,7.645,8.34,9.035,F,0.1
+Türkiye,demir_celik,72249031,Semi-finished products of steel,6.45,,6.45,7.095,7.74,8.385,F,0.1
+Türkiye,demir_celik,72249038,Semi-finished products of alloy,6.45,,6.45,7.095,7.74,8.385,F,0.1
+Türkiye,demir_celik,72249090,Semi-finished products of alloy,6.95,,6.95,7.645,8.34,9.035,F,0.1
+Türkiye,demir_celik,72251100,Flat-rolled products of silicon-,8.5,,8.5,9.35,10.2,11.05,C,0.1
+Türkiye,demir_celik,72251910,Flat-rolled products of silicon-,6.45,,6.45,7.095,7.74,8.385,C,0.1
+Türkiye,demir_celik,72251990,Flat-rolled products of silicon-,6.52,,6.52,7.172,7.824,8.476,F,0.1
+Türkiye,demir_celik,722530,Flat-rolled products of alloy steel,6.45,,6.45,7.095,7.74,8.385,F,0.1
+Türkiye,demir_celik,722540,Flat-rolled products of alloy steel,6.45,,6.45,7.095,7.74,8.385,F,0.1
+Türkiye,demir_celik,722550,Flat-rolled products of alloy steel,6.52,,6.52,7.172,7.824,8.476,F,0.1
+Türkiye,demir_celik,72259100,Flat-rolled products of alloy steel,6.52,,6.52,7.172,7.824,8.476,F,0.1
+Türkiye,demir_celik,72259200,Flat-rolled products of alloy steel,6.52,,6.52,7.172,7.824,8.476,F,0.1
+Türkiye,demir_celik,72259900,Flat-rolled products of alloy steel,6.52,,6.52,7.172,7.824,8.476,F,0.1
+Türkiye,demir_celik,72261100,Flat-rolled products of silicon-,8.5,,8.5,9.35,10.2,11.05,C,0.1
+Türkiye,demir_celik,72261910,Flat-rolled products of silicon-,6.45,,6.45,7.095,7.74,8.385,C,0.1
+Türkiye,demir_celik,72261980,Flat-rolled products of silicon-,6.52,,6.52,7.172,7.824,8.476,F,0.1
+Türkiye,demir_celik,72262000,Flat-rolled products of high-speed,6.45,,6.45,7.095,7.74,8.385,F,0.1
+Türkiye,demir_celik,722691,Flat-rolled products of alloy steel,6.45,,6.45,7.095,7.74,8.385,F,0.1
+Türkiye,demir_celik,72269200,Flat-rolled products of alloy steel,6.52,,6.52,7.172,7.824,8.476,F,0.1
+Türkiye,demir_celik,722699,Flat-rolled products of alloy steel,6.52,,6.52,7.172,7.824,8.476,F,0.1
+Türkiye,demir_celik,7227,Bars and rods of alloy steel other,6.29,,6.29,6.919,7.548,8.177,C/F,0.1
+Türkiye,demir_celik,72281020,"Bars and rods of high-speed steel,",6.29,,6.29,6.919,7.548,8.177,F,0.1
+Türkiye,demir_celik,72281050,"Bars and rods of high-speed steel,",6.95,,6.95,7.645,8.34,9.035,F,0.1
+Türkiye,demir_celik,72281090,"Bars and rods of high-speed steel,",6.29,,6.29,6.919,7.548,8.177,F,0.1
+Türkiye,demir_celik,722820,Bars and rods of silico-manganese,6.29,,6.29,6.919,7.548,8.177,F,0.1
+Türkiye,demir_celik,722830,Bars and rods of alloy steel other,6.29,,6.29,6.919,7.548,8.177,C/F,0.1
+Türkiye,demir_celik,722840,Bars and rods of alloy steel other,6.95,,6.95,7.645,8.34,9.035,F,0.1
+Türkiye,demir_celik,722850,Bars and rods of alloy steel other,6.29,,6.29,6.919,7.548,8.177,C/F,0.1
+Türkiye,demir_celik,722860,Bars and rods of alloy steel other,6.29,,6.29,6.919,7.548,8.177,F,0.1
+Türkiye,demir_celik,722870,"Angles, shapes and sections of alloy",6.29,,6.29,6.919,7.548,8.177,F,0.1
+Türkiye,demir_celik,72288000,"Hollow drill bars and rods, of alloy",6.29,,6.29,6.919,7.548,8.177,F,0.1
+Türkiye,demir_celik,7229,Wire of alloy steel other than,6.29,,6.29,6.919,7.548,8.177,C/F,0.1
+Türkiye,demir_celik,7301,"Sheet piling of iron or steel, whether",2.51,,2.51,2.761,3.012,3.263,C,0.1
+Türkiye,demir_celik,7302,Railway or tramway track,5.36,,5.36,5.896,6.432,6.968,C,0.1
+Türkiye,demir_celik,730300,"Tubes, pipes and hollow profiles, of",2.48,,2.48,2.728,2.976,3.224,,0.1
+Türkiye,demir_celik,73041100,Line pipe of a kind used for oil or,5.69,,5.69,6.259,6.828,7.397,,0.1
+Türkiye,demir_celik,730419,Line pipe of a kind used for oil or,2.34,,2.34,2.574,2.808,3.042,C,0.1
+Türkiye,demir_celik,73042200,"Drill pipe, seamless, of stainless",5.69,,5.69,6.259,6.828,7.397,,0.1
+Türkiye,demir_celik,73042300,"Drill pipe, seamless, of a kind used",2.34,,2.34,2.574,2.808,3.042,C,0.1
+Türkiye,demir_celik,73042400,"Casing and tubing, seamless, of a",5.69,,5.69,6.259,6.828,7.397,,0.1
+Türkiye,demir_celik,730429,"Casing and tubing, seamless, of iron",2.34,,2.34,2.574,2.808,3.042,C,0.1
+Türkiye,demir_celik,730431,"Tubes, pipes and hollow profiles,",2.34,,2.34,2.574,2.808,3.042,C,0.1
+Türkiye,demir_celik,730439,"Tubes, pipes and hollow profiles,",2.34,,2.34,2.574,2.808,3.042,C,0.1
+Türkiye,demir_celik,73044100,"Tubes, pipes and hollow profiles,",5.69,,5.69,6.259,6.828,7.397,,0.1
+Türkiye,demir_celik,730449,"Tubes, pipes and hollow profiles,",5.69,,5.69,6.259,6.828,7.397,,0.1
+Türkiye,demir_celik,730451,"Tubes, pipes and hollow profiles,",2.36,,2.36,2.596,2.832,3.068,F,0.1
+Türkiye,demir_celik,730459,"Tubes, pipes and hollow profiles,",2.36,,2.36,2.596,2.832,3.068,C/F,0.1
+Türkiye,demir_celik,73049000,"Tubes, pipes and hollow profiles,",2.34,,2.34,2.574,2.808,3.042,C,0.1
+Türkiye,demir_celik,7305,"Tubes and pipes, having circular",2.182,,2.182,2.4,2.618,2.837,C,0.1
+Türkiye,demir_celik,73061100,Line pipe of a kind used for oil or,5.92,,5.92,6.512,7.104,7.696,,0.1
+Türkiye,demir_celik,73061900,Line pipe of a kind used for oil or,2.244,,2.244,2.468,2.693,2.917,C,0.1
+Türkiye,demir_celik,73062100,Casing and tubing of a kind used in,5.92,,5.92,6.512,7.104,7.696,,0.1
+Türkiye,demir_celik,73062900,Casing and tubing of a kind used in,2.244,,2.244,2.468,2.693,2.917,C,0.1
+Türkiye,demir_celik,73063012,"Precision tubes, welded, of circular",2.244,,2.244,2.468,2.693,2.917,C,0.1
+Türkiye,demir_celik,73063018,"Precision tubes, welded, of circular",2.244,,2.244,2.468,2.693,2.917,,0.1
+Türkiye,demir_celik,73063041,"Threaded or threadable tubes ""gas",2.244,,2.244,2.468,2.693,2.917,C,0.1
+Türkiye,demir_celik,73063049,"Threaded or threadable tubes ""gas",2.244,,2.244,2.468,2.693,2.917,C,0.1
+Türkiye,demir_celik,73063072,"Other tubes, pipes and hollow",2.244,,2.244,2.468,2.693,2.917,C,0.1
+Türkiye,demir_celik,73063077,"Other tubes, pipes and hollow",2.244,,2.244,2.468,2.693,2.917,C,0.1
+Türkiye,demir_celik,73063080,"Tubes, pipes and hollow profiles,",2.244,,2.244,2.468,2.693,2.917,C,0.1
+Türkiye,demir_celik,73064020,"Tubes, pipes and hollow profiles,",5.92,,5.92,6.512,7.104,7.696,,0.1
+Türkiye,demir_celik,73064080,"Tubes, pipes and hollow profiles,",5.85,,5.85,6.435,7.02,7.605,,0.1
+Türkiye,demir_celik,73065021,"Precision steel tubes, welded, of",2.244,,2.244,2.468,2.693,2.917,F,0.1
+Türkiye,demir_celik,73065029,"Precision steel tubes, welded, of",2.244,,2.244,2.468,2.693,2.917,F,0.1
+Türkiye,demir_celik,73065080,"Tubes, pipes and hollow profiles,",2.244,,2.244,2.468,2.693,2.917,F,0.1
+Türkiye,demir_celik,73066110,"Tubes and pipes and hollow profiles,",5.92,,5.92,6.512,7.104,7.696,,0.1
+Türkiye,demir_celik,73066192,"Tubes and pipes and hollow profiles,",2.244,,2.244,2.468,2.693,2.917,C,0.1
+Türkiye,demir_celik,73066199,"Tubes and pipes and hollow profiles,",2.244,,2.244,2.468,2.693,2.917,C,0.1
+Türkiye,demir_celik,73066910,"Tubes, pipes and hollow profiles,",5.92,,5.92,6.512,7.104,7.696,,0.1
+Türkiye,demir_celik,73066990,"Tubes, pipes and hollow profiles,",2.244,,2.244,2.468,2.693,2.917,C,0.1
+Türkiye,demir_celik,73069000,"Tubes, pipes and hollow profiles",2.244,,2.244,2.468,2.693,2.917,C,0.1
+Türkiye,demir_celik,730711,Tube or pipe fittings of non-,3.151,,3.151,3.466,3.781,4.096,,0.1
+Türkiye,demir_celik,73071910,Tube or pipe fittings of cast iron,3.151,,3.151,3.466,3.781,4.096,,0.1
+Türkiye,demir_celik,73071990,Cast tube or pipe fittings of steel,3.151,,3.151,3.466,3.781,4.096,C,0.1
+Türkiye,demir_celik,73072100,Flanges of stainless steel (excl. cast,3.71,,3.71,4.081,4.452,4.823,,0.1
+Türkiye,demir_celik,730722,"Threaded elbows, bends and sleeves",3.71,,3.71,4.081,4.452,4.823,,0.1
+Türkiye,demir_celik,730723,Butt welding tube or pipe fittings of,3.71,,3.71,4.081,4.452,4.823,,0.1
+Türkiye,demir_celik,730729,Tube or pipe fittings of stainless,3.71,,3.71,4.081,4.452,4.823,,0.1
+Türkiye,demir_celik,73079100,Flanges of iron or steel (excl. cast or,3.151,,3.151,3.466,3.781,4.096,C,0.1
+Türkiye,demir_celik,730792,"Threaded elbows, bends and sleeves,",3.151,,3.151,3.466,3.781,4.096,C,0.1
+Türkiye,demir_celik,730793,Butt welding fittings of iron or steel,3.151,,3.151,3.466,3.781,4.096,C,0.1
+Türkiye,demir_celik,730799,"Tube or pipe fittings, of iron or steel",3.151,,3.151,3.466,3.781,4.096,C,0.1
+Türkiye,demir_celik,7308,Structures and parts of structures,5.52,,5.52,6.072,6.624,7.176,C,0.1
+Türkiye,demir_celik,7309,"Reservoirs, tanks, vats and similar",5.6,,5.6,6.16,6.72,7.28,C,0.1
+Türkiye,demir_celik,7310,"Tanks, casks, drums, cans, boxes",3.03,,3.03,3.333,3.636,3.939,C,0.1
+Türkiye,demir_celik,731100,"Containers of iron or steel, for",5.43,,5.43,5.973,6.516,7.059,C,0.1
+Türkiye,demir_celik,73181100,Coach screws of iron or steel,2.832,,2.832,3.115,3.398,3.682,C,0.1
+Türkiye,demir_celik,73181210,Wood screws of stainless steel (excl.,5.69,,5.69,6.259,6.828,7.397,C,0.1
+Türkiye,demir_celik,73181290,Wood screws of iron or steel other,2.832,,2.832,3.115,3.398,3.682,C,0.1
+Türkiye,demir_celik,73181300,"Screw hooks and screw rings, of",2.832,,2.832,3.115,3.398,3.682,C,0.1
+Türkiye,demir_celik,73181410,"Self-tapping screws, of stainless steel",5.69,,5.69,6.259,6.828,7.397,C,0.1
+Türkiye,demir_celik,73181491,Spaced-thread screws of iron or,2.832,,2.832,3.115,3.398,3.682,C,0.1
+Türkiye,demir_celik,73181499,Self-tapping screws of iron or steel,2.832,,2.832,3.115,3.398,3.682,C,0.1
+Türkiye,demir_celik,731815,"Threaded screws and bolts, of iron",5.43,,5.43,5.973,6.516,7.059,C,0.1
+Türkiye,demir_celik,731816,Nuts of iron or steel,3.79,,3.79,4.169,4.548,4.927,C,0.1
+Türkiye,demir_celik,73181900,"Threaded articles, of iron or steel,",2.832,,2.832,3.115,3.398,3.682,C,0.1
+Türkiye,demir_celik,73182100,Spring washers and other lock,2.832,,2.832,3.115,3.398,3.682,C,0.1
+Türkiye,demir_celik,73182200,Washers of iron or steel (excl. spring,3.43,,3.43,3.773,4.116,4.459,C,0.1
+Türkiye,demir_celik,73182300,Rivets of iron or steel (excl. tubular,2.832,,2.832,3.115,3.398,3.682,C,0.1
+Türkiye,demir_celik,73182400,"Cotters and cotter pins, of iron or",2.832,,2.832,3.115,3.398,3.682,C,0.1
+Türkiye,demir_celik,73182900,"Non-threaded articles, of iron or",2.832,,2.832,3.115,3.398,3.682,C,0.1
+Türkiye,demir_celik,73261100,Grinding balls and similar articles,3.0,,3.0,3.3,3.6,3.9,C,0.1
+Türkiye,demir_celik,732619,"Articles of iron or steel, forged or",3.0,,3.0,3.3,3.6,3.9,C,0.1
+Türkiye,demir_celik,73262000,"Articles of iron or steel wire, n.e.s.",2.583,,2.583,2.841,3.1,3.358,C,0.1
+Türkiye,demir_celik,73269030,"Ladders and steps, of iron or steel",2.583,,2.583,2.841,3.1,3.358,C,0.1
+Türkiye,demir_celik,73269040,Pallets and similar platforms for,2.583,,2.583,2.841,3.1,3.358,C,0.1
+Türkiye,demir_celik,73269050,"Reels for cables, piping and the like,",2.583,,2.583,2.841,3.1,3.358,C,0.1
+Türkiye,demir_celik,73269060,"Ventilators, non-mechanical,",2.583,,2.583,2.841,3.1,3.358,C,0.1
+Türkiye,demir_celik,73269092,"Articles of iron or steel, open-die",3.0,,3.0,3.3,3.6,3.9,C,0.1
+Türkiye,demir_celik,73269094,"Articles of iron or steel, closed-die",3.0,,3.0,3.3,3.6,3.9,C,0.1
+Türkiye,demir_celik,73269096,"Sintered articles of iron or steel,",3.0,,3.0,3.3,3.6,3.9,C,0.1
+Türkiye,demir_celik,73269098,"Articles of iron or steel, n.e.s.",2.583,,2.583,2.841,3.1,3.358,C,0.1
