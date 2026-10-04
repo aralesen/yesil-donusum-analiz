@@ -56,6 +56,18 @@ def anahtar_bul(saglayici: str) -> str | None:
         return None
 
 
+def _hata_metni(e) -> str:
+    """Sağlayıcının gövdede döndürdüğü asıl hata mesajını çıkarır; 401'in sebebi oradadır."""
+    try:
+        govde = json.loads(e.read().decode('utf-8'))
+    except Exception:
+        return ''
+    hata = govde.get('error', govde)
+    if isinstance(hata, dict):
+        return str(hata.get('message') or hata.get('type') or '')[:200]
+    return str(hata)[:200]
+
+
 def _istek_at(url: str, govde: dict, basliklar: dict, zaman_asimi: int) -> dict:
     istek = urllib.request.Request(url, data=json.dumps(govde).encode('utf-8'),
                                    headers={'Content-Type': 'application/json', **basliklar})
@@ -133,6 +145,7 @@ class Istemci:
                 return metin
             except urllib.error.HTTPError as e:
                 son_hata = e
+                detay = _hata_metni(e)
                 if e.code in (429, 500, 502, 503, 504) and deneme < self.deneme - 1:
                     time.sleep(2 ** deneme)        # kısa bekleyip tekrar dene
                     continue
@@ -140,7 +153,8 @@ class Istemci:
                          403: ' Anahtarın bu modele erişimi yok.',
                          404: ' Model adı geçersiz olabilir.',
                          400: ' İstek reddedildi; kredi bakiyesi ve model adı kontrol edilmeli.'}.get(e.code, '')
-                raise LLMHatasi(f'{self.saglayici} hatası {e.code}: {e.reason}.{ipucu}') from e
+                raise LLMHatasi(f'{self.saglayici} hatası {e.code}: {e.reason}.{ipucu}'
+                                + (f' Sağlayıcının mesajı: {detay}' if detay else '')) from e
             except (urllib.error.URLError, TimeoutError) as e:
                 son_hata = e
                 if deneme < self.deneme - 1:

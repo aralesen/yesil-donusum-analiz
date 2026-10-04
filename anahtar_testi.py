@@ -26,9 +26,14 @@ def main():
 
     print(f'Sağlayıcı : {a.saglayici}')
     print(f'Anahtar   : {anahtar[:7]}...{anahtar[-4:]} ({len(anahtar)} karakter)')
-    beklenen = {'anthropic': 'sk-ant-', 'openai': 'sk-', 'google': 'AIza'}[a.saglayici]
-    if not anahtar.startswith(beklenen):
+    beklenen = {'anthropic': 'sk-ant-api', 'openai': 'sk-', 'google': 'AIza'}[a.saglayici]
+    if anahtar.startswith('sk-ant-admin'):
+        print('⚠️  Bu bir yönetici (admin) anahtarı. Mesaj gönderemez, her zaman 401 verir. '
+              'Console > Settings > API keys bölümünden normal anahtar oluşturun.')
+    elif not anahtar.startswith(beklenen):
         print(f'⚠️  Bu anahtar "{beklenen}" ile başlamıyor. Başka bir sağlayıcının anahtarı olabilir.')
+    elif len(anahtar) < 40:
+        print('⚠️  Anahtar fazla kısa; kopyalanırken kesilmiş olabilir.')
 
     model = a.model or VARSAYILAN_MODELLER[a.saglayici]
     print(f'Model     : {model}\nİstek gönderiliyor...')

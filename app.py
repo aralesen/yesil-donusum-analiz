@@ -166,6 +166,28 @@ with st.sidebar:
                               help="Boş bırakılırsa sağlayıcının güncel sürümü kullanılır. "
                                    "404 hatası alırsanız buraya güncel model adını yazın.")
 
+    with st.expander("🔍 Anahtar tanısı"):
+        import llm_motor as _lm
+        _saglayici = _lm.saglayici_coz(llm_provider)
+        _anahtar = _lm.get_api_key(api_key, llm_provider)
+        _kaynak = "kenar çubuğundaki kutu" if api_key else "ortam değişkeni ya da Secrets"
+        if not _anahtar:
+            st.warning("Anahtar bulunamadı. Kutuya yazın ya da Secrets bölümüne ekleyin.")
+        else:
+            _onek = {"anthropic": "sk-ant-api", "openai": "sk-", "google": "AIza"}[_saglayici]
+            st.caption(f"Sağlayıcı: {_saglayici} · Kaynak: {_kaynak}")
+            st.caption(f"Anahtar: {_anahtar[:10]}…{_anahtar[-4:]} · {len(_anahtar)} karakter")
+            if _anahtar.startswith("sk-ant-admin"):
+                st.error("Bu bir yönetici (admin) anahtarı. Mesaj gönderemez, 401 verir. "
+                         "Console'da Settings → API keys bölümünden normal bir anahtar oluşturun.")
+            elif not _anahtar.startswith(_onek):
+                st.error(f"Bu anahtar '{_onek}' ile başlamıyor; seçtiğiniz sağlayıcıya ait olmayabilir.")
+            elif len(_anahtar) < 40:
+                st.error("Anahtar fazla kısa görünüyor; kopyalanırken kesilmiş olabilir.")
+            else:
+                st.success("Biçim doğru görünüyor. Hata alıyorsanız anahtar iptal edilmiş "
+                           "ya da başka bir workspace'e ait olabilir.")
+
     st.divider()
     
     # --- AYARLAR ---
