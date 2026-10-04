@@ -47,10 +47,11 @@ def anahtar_bul(saglayici: str) -> str | None:
     ad = SAGLAYICILAR[saglayici]['anahtar_adi']
     anahtar = os.environ.get(ad)
     if anahtar:
-        return anahtar
+        return anahtar.strip().strip('"\'')
     try:
         import streamlit as st
-        return st.secrets.get(ad)          # .streamlit/secrets.toml ya da bulut ayarları
+        deger = st.secrets.get(ad)         # .streamlit/secrets.toml ya da bulut ayarları
+        return str(deger).strip().strip('"\'') if deger else None
     except Exception:
         return None
 
@@ -81,7 +82,8 @@ class Istemci:
                              f"Seçenekler: {', '.join(SAGLAYICILAR)}")
         ayar = SAGLAYICILAR[self.saglayici]
         self.model = self.model or ayar['varsayilan_model']
-        self.anahtar = self.anahtar or anahtar_bul(self.saglayici) or ''
+        # Kopyalarken araya giren boşluk, satır sonu ve tırnak 401'e sebep oluyor; temizlenir.
+        self.anahtar = (self.anahtar or anahtar_bul(self.saglayici) or '').strip().strip('"\'')
         if not self.anahtar:
             raise LLMHatasi(f"{ayar['anahtar_adi']} bulunamadı. Ortam değişkeni ya da "
                             'Streamlit secrets içine ekleyin; koda yazmayın.')
@@ -134,7 +136,11 @@ class Istemci:
                 if e.code in (429, 500, 502, 503, 504) and deneme < self.deneme - 1:
                     time.sleep(2 ** deneme)        # kısa bekleyip tekrar dene
                     continue
-                raise LLMHatasi(f'{self.saglayici} hatası {e.code}: {e.reason}') from e
+                ipucu = {401: ' Anahtar geçersiz ya da başka bir sağlayıcıya ait olabilir.',
+                         403: ' Anahtarın bu modele erişimi yok.',
+                         404: ' Model adı geçersiz olabilir.',
+                         400: ' İstek reddedildi; kredi bakiyesi ve model adı kontrol edilmeli.'}.get(e.code, '')
+                raise LLMHatasi(f'{self.saglayici} hatası {e.code}: {e.reason}.{ipucu}') from e
             except (urllib.error.URLError, TimeoutError) as e:
                 son_hata = e
                 if deneme < self.deneme - 1:

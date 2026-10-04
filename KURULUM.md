@@ -38,10 +38,17 @@ Bulutta aynı satır uygulama ayarlarındaki **Secrets** bölümüne yazılır. 
 | `rag_motor.py` | PDF araması (isteğe bağlı, ek paket ister) |
 | `karbon/` | Hesap çekirdeği: motor, sabitler, danışman, gizlilik, llm, değerlendirme, Ek I |
 | `veri/` | Ek I'den çıkarılan varsayılan değer tabloları |
-| `ek1_turkiye.csv` | Türkiye satırları (hesap motoru bunu okur) |
-| `skdm_tesis_verisi.xlsx` | Tesis veri şablonu örneği |
+| `ek1_turkiye.csv` | Resmi referans: Ek I'in Türkiye satırları (firma verisi değil) |
 | `tests/` | 449 test |
 | `.github/workflows/kontrol.yml` | Her gönderimde ruff, mypy, bandit ve testler |
+
+## Depoda hangi veri durur, hangisi durmaz
+
+| Veri | Depoda | Sebep |
+|---|---|---|
+| Firma faaliyet verisi (yakıt, elektrik, üretim) | **Hayır** | Her çalıştırmada kullanıcı yükler. Gömülü tek satır bile olmamalı. |
+| Tesis veri şablonu | **Hayır** | Kenar çubuğundaki düğme şablonu kodla üretip indiriyor; dosya olarak tutmaya gerek yok. |
+| AB varsayılan değerleri (Ek I) | **Evet** | Resmi, kamuya açık referans. Uygulama onsuz hesap yapamaz. Yeni resmi dosya yüklenirse yüklenen tablo kullanılır. |
 
 ## Doğrulama
 

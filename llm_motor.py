@@ -59,7 +59,7 @@ def saglayici_coz(provider: str) -> str:
 def get_api_key(kullanici_girisi, provider):
     """Önce kullanıcının yazdığı anahtar, sonra ortam değişkeni ya da Streamlit secrets."""
     if kullanici_girisi:
-        return kullanici_girisi
+        return str(kullanici_girisi).strip().strip('"\'')
     return llm.anahtar_bul(saglayici_coz(provider))
 
 
