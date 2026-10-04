@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Bulanık ANP (FANP) hesap motoru.
 
@@ -425,7 +424,7 @@ def run_fanp(model, ratings, cluster_scores, sentez=None, full_limit=False):
     D, n = R.shape
     loc = [np.zeros((D, n)) for _ in range(3)]
     for cols in model.members:
-        for comp, p in zip(loc, fuzzy_priority(*to_tfn(model, R[:, cols]))):
+        for comp, p in zip(loc, fuzzy_priority(*to_tfn(model, R[:, cols])), strict=True):
             comp[:, cols] = p
     cl = list(fuzzy_priority(*to_tfn(model, C)))
     altn = list(alt_normalized(model))
@@ -624,7 +623,7 @@ def advanced_green_consultant_reply(prompt: str, firm_data: dict = None, model =
     text = tr_lower(prompt).strip()
 
     matched_intents = []
-    for key, data in CONSULTANT_INTENTS.items():
+    for data in CONSULTANT_INTENTS.values():
         score = sum(1 for term in data['terms'] if term_in_text(term, text))
         if score > 0:
             matched_intents.append((score, data))
@@ -688,7 +687,7 @@ def advanced_green_consultant_reply(prompt: str, firm_data: dict = None, model =
     if rag_results and isinstance(rag_results, list):
         out.append("\n---\n#### 📖 Doküman Havuzundan Çıkarımlar (Semantik RAG)")
         out.append("*Yapay zeka, kurum veri tabanındaki PDF belgelerinden aşağıdaki ilgili mevzuat/teori paragraflarını eşleştirdi:*")
-        for idx, res in enumerate(rag_results, 1):
+        for res in rag_results:
             source_name = res.get('source', 'Bilinmeyen Kaynak')
             snippet = res.get('text', '').replace('\n', ' ').strip()
             # Çok uzun olmaması için kırpalım
@@ -901,8 +900,8 @@ def read_workbook(content, model=None, kind=None):
     model = model or default_model()
     try:
         xls = pd.ExcelFile(io.BytesIO(content))
-    except Exception:
-        raise ValueError("Dosya Excel olarak açılamadı. .xlsx biçiminde bir dosya yükleyin.")
+    except Exception as e:
+        raise ValueError("Dosya Excel olarak açılamadı. .xlsx biçiminde bir dosya yükleyin.") from e
     sheets = [(sh, pd.read_excel(xls, sheet_name=sh, header=None)) for sh in xls.sheet_names]
     survey = demo = None
     if kind in (None, 'coklu'):

@@ -1,15 +1,15 @@
-# -*- coding: utf-8 -*-
 """
 Yeşil Dönüşüm Karar Destek Sistemi (Bulanık ANP, SKDM Teşhisi ve LLM Danışman)
 Çalıştırma:  streamlit run app.py
 """
 
+import io
 from pathlib import Path
+
 import altair as alt
 import numpy as np
 import pandas as pd
 import streamlit as st
-import io
 
 # Sayfa ayarı her zaman İLK Streamlit komutu olmalıdır!
 st.set_page_config(page_title="Yeşil Dönüşüm Analiz Aracı", page_icon="🌱", layout="wide", initial_sidebar_state="expanded")
@@ -17,10 +17,12 @@ st.set_page_config(page_title="Yeşil Dönüşüm Analiz Aracı", page_icon="�
 import fanp_motor as m
 import llm_motor  # LLM Modülü hiza hatası vermemesi için en tepeye alındı
 
+GreenRAG: type | None = None          # RAG paketleri kurulu değilse danışman onsuz çalışır
 try:
-    from rag_motor import GreenRAG
-except Exception:            
-    GreenRAG = None
+    from rag_motor import GreenRAG as _GreenRAG
+    GreenRAG = _GreenRAG
+except Exception:
+    pass
 
 # ------------------------------------------------------------------ RAG MOTORU YÜKLEME
 @st.cache_resource(show_spinner=False)
@@ -121,7 +123,7 @@ with st.sidebar:
     st.download_button(f"{tur_etiket} şablonunu indir", data=sablon(kind),
                        file_name="fanp_tek_firma.xlsx" if kind == 'tek' else "fanp_coklu_firma.xlsx",
                        mime=XLSX_MIME, width="stretch", key=f"sablon_{kind}")
-    up = st.file_uploader(f"Anket Dosyası Yükle", type=["xlsx", "xlsm", "xls"], key=f"upload_{kind}")
+    up = st.file_uploader("Anket Dosyası Yükle", type=["xlsx", "xlsm", "xls"], key=f"upload_{kind}")
     if up is not None:
         st.session_state[f"content_{kind}"] = up.getvalue()
         st.session_state[f"name_{kind}"] = up.name
@@ -156,8 +158,13 @@ with st.sidebar:
     
     # --- 4. LLM (YAPAY ZEKA) DANIŞMAN ---
     st.header("4. Yapay Zeka Danışman (LLM)")
-    llm_provider = st.selectbox("Sağlayıcı Seçin", ["Google (Gemini)", "Anthropic (Claude)", "OpenAI (GPT)"])
-    api_key = st.text_input("API Anahtarı", type="password", help="Chatbot cevapları için gereklidir. Girdiğiniz veriler, Ürün Anayasası 'Gizlilik Perdesi' kapsamında anonimleştirilerek işlenir.")
+    llm_provider = st.selectbox("Sağlayıcı Seçin", ["Anthropic (Claude)", "Google (Gemini)", "OpenAI (GPT)"])
+    api_key = st.text_input("API Anahtarı", type="password",
+                            help="Chatbot cevapları için gereklidir. Firma verileriniz 'Gizlilik Perdesi' "
+                                 "arkasında yer tutucuya çevrilerek gönderilir; rakamlarınız sağlayıcıya gitmez.")
+    llm_model = st.text_input("Model adı (isteğe bağlı)", value="",
+                              help="Boş bırakılırsa sağlayıcının güncel sürümü kullanılır. "
+                                   "404 hatası alırsanız buraya güncel model adını yazın.")
 
     st.divider()
     
@@ -175,7 +182,7 @@ def strateji_tanimlari(model):
         per_row = 4
         for start in range(0, len(model.alternatives), per_row):
             cols = st.columns(per_row)
-            for col, (code, name) in zip(cols, model.alternatives[start:start + per_row]):
+            for col, (code, name) in zip(cols, model.alternatives[start:start + per_row], strict=False):
                 icon, desc = m.STRATEGY_DESCRIPTIONS.get(code, ('', ''))
                 with col:
                     st.markdown(f"### {icon} {code}\n**{name}**")
@@ -210,7 +217,7 @@ if firms.empty:
 other_label = "tezdeki yöntem" if res['other'] == 'bulanik' else "durulaştırılmış sentez"
 share_cols = [f'{a} payı (%)' for a in A]
 tabs = st.tabs(["Genel bakış", "Firmalar", "Yol haritası", "Firma ayrıntısı", "Strateji matrisi",
-                "Yöntem", f"Veri raporu", "💬 Yeşil Danışman (Chatbot)", "⚙️ Emisyon Teşhisi"])
+                "Yöntem", "Veri raporu", "💬 Yeşil Danışman (Chatbot)", "⚙️ Emisyon Teşhisi"])
 
 # ------------------------------------------------------------------ genel bakış
 with tabs[0]:
@@ -338,7 +345,8 @@ with tabs[7]:
                 mevzuat_parcalari=rag_metinleri,
                 firma_verisi=selected_firm_context,
                 provider=llm_provider,
-                api_key_input=api_key
+                api_key_input=api_key,
+                model=llm_model
             )
 
         with st.chat_message("assistant"):
@@ -450,23 +458,24 @@ with tabs[8]:
                 
                 col1, col2, col3 = st.columns(3)
                 col1.metric("🏭 İncelenen Tesis", f"{toplam_firma}")
-                col2.metric("⚠ SKDM Vergi Riski Taşıyan", f"{riskli_firma} Tesis", delta="Sınır Üstü", delta_color="inverse")
-                col3.metric("✅ Uyumlu (Güvenli)", f"{guvenli_firma} Tesis", delta="Sınır Altı", delta_color="normal")
+                col2.metric("⚠ Varsayılan değerin üstünde", f"{riskli_firma} Tesis", delta="Beyan avantajı yok", delta_color="inverse")
+                col3.metric("✅ Varsayılan değerin altında", f"{guvenli_firma} Tesis", delta="Beyan avantajlı", delta_color="normal")
                 
                 st.divider()
-                st.markdown(f"#### 📊 Ürün Koduna Göre Sınır Aşım Analizi (Segment: {kb.ulke})")
+                st.markdown(f"#### 📊 Ürün Koduna Göre Varsayılan Değer Karşılaştırması (Segment: {kb.ulke})")
                 
                 chart_data = df_sonuc[['cn_kodu', 'fark', 'riskli_mi']].copy()
-                chart_data['Durum'] = chart_data['riskli_mi'].map({True: 'Riskli', False: 'Güvenli'})
+                chart_data['Durum'] = chart_data['riskli_mi'].map({True: 'Varsayılanın üstünde', False: 'Varsayılanın altında'})
                 
                 bar_chart = alt.Chart(chart_data).mark_circle(size=120).encode(
                     x=alt.X('cn_kodu:N', title='Ürün Kodu (CN)'),
-                    y=alt.Y('fark:Q', title='Sınıra Göre Net Fark (tCO2e/t)'),
-                    color=alt.Color('Durum:N', scale=alt.Scale(domain=['Riskli', 'Güvenli'], range=['#d62728', '#2ca02c'])),
+                    y=alt.Y('fark:Q', title='Varsayılan değere göre fark (tCO2e/t)'),
+                    color=alt.Color('Durum:N', scale=alt.Scale(domain=['Varsayılanın üstünde', 'Varsayılanın altında'],
+                                                                range=['#d62728', '#2ca02c'])),
                     tooltip=['cn_kodu', alt.Tooltip('fark:Q', format='.3f'), 'Durum']
                 ).properties(height=300).interactive()
                 
-                st.altair_chart(bar_chart, use_container_width=True)
+                st.altair_chart(bar_chart, width="stretch")
                 
                 st.markdown("#### 📋 Detaylı Tesis Teşhis Raporu")
                 df_gosterim = df_sonuc[['firma_id', 'cn_kodu', 'tanim', 'gercek_toplam_emisyon', 'resmi_sinir', 'fark', 'riskli_mi']].rename(columns={
@@ -474,23 +483,25 @@ with tabs[8]:
                     'cn_kodu': 'CN Kodu',
                     'tanim': 'Ürün Tanımı',
                     'gercek_toplam_emisyon': 'Tesis Gömülü Emisyon (t/t)',
-                    'resmi_sinir': f'{kb.ulke} Sınırı (t/t)',
+                    'resmi_sinir': f'{kb.ulke} varsayılan değeri (t/t)',
                     'fark': 'Net Fark',
                     'riskli_mi': 'Durum'
                 })
-                df_gosterim['Durum'] = df_gosterim['Durum'].map({True: '⚠️ Vergi Riski', False: '✅ Güvenli'})
+                df_gosterim['Durum'] = df_gosterim['Durum'].map({True: '⚠️ Varsayılanın üstünde', False: '✅ Varsayılanın altında'})
                 
                 st.dataframe(
                     df_gosterim.style.format({
                         'Tesis Gömülü Emisyon (t/t)': "{:.3f}",
-                        f'{kb.ulke} Sınırı (t/t)': "{:.3f}",
+                        f'{kb.ulke} varsayılan değeri (t/t)': "{:.3f}",
                         'Net Fark': "{:.3f}"
-                    }).map(lambda x: 'background-color: #ffeef0; color: #cc0000' if 'Riski' in str(x) else 'background-color: #eefbee; color: #006600', subset=['Durum']),
-                    use_container_width=True, 
+                    }).map(lambda x: 'background-color: #ffeef0; color: #cc0000' if 'üstünde' in str(x) else 'background-color: #eefbee; color: #006600', subset=['Durum']),
+                    width="stretch",
                     hide_index=True
                 )
                 
     except ImportError:
         st.error("⚠️ hesap_motoru.py dosyası bulunamadı.")
+    except FileNotFoundError as e:
+        st.error(f"Veri dosyası bulunamadı: {e}")
     except Exception as e:
         st.error(f"Beklenmeyen bir hata oluştu: {e}")

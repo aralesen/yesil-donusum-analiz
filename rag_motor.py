@@ -1,14 +1,14 @@
-# -*- coding: utf-8 -*-
 """
 Yeşil Dönüşüm RAG (Retrieval-Augmented Generation) Motoru
 Cross-Encoder Reranker entegrasyonu ile hassaslaştırılmış semantik arama modülü.
 """
 
 import os
+
 import faiss
-import numpy as np
 from PyPDF2 import PdfReader
-from sentence_transformers import SentenceTransformer, CrossEncoder
+from sentence_transformers import CrossEncoder, SentenceTransformer
+
 
 class GreenRAG:
     def __init__(self, folder_path="bilgi_havuzu", chunk_size=800, overlap=100):

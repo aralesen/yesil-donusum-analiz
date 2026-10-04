@@ -134,7 +134,7 @@ class Danisman:
     """
     parcalar: list = field(default_factory=list)
     llm: object = None
-    _dizin: BM25 = field(init=False, default=None)
+    _dizin: 'BM25 | None' = field(init=False, default=None)
 
     def __post_init__(self):
         self._dizin = BM25(self.parcalar)

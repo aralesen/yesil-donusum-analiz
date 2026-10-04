@@ -121,7 +121,7 @@ class Istemci:
     # ------------------------------------------------------------------ çağrı
     def __call__(self, sistem: str, kullanici: str) -> str:
         url, govde, basliklar = self._govde(sistem, kullanici)
-        son_hata = None
+        son_hata: Exception | None = None
         for deneme in range(self.deneme):
             try:
                 cevap = type(self)._gonder(url, govde, basliklar, self.zaman_asimi)

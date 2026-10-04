@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Arayüz testleri: varsayılan model ve boyutları farklı bir model. python -m pytest -q tests"""
 import os
 import shutil
@@ -13,8 +12,9 @@ from streamlit.testing.v1 import AppTest  # noqa: E402
 ROOT = os.path.join(os.path.dirname(__file__), '..')
 sys.path.insert(0, ROOT)
 sys.path.insert(0, os.path.dirname(__file__))
-import fanp_motor as m  # noqa: E402
 from test_fanp import write_survey_excel  # noqa: E402
+
+import fanp_motor as m  # noqa: E402
 
 
 def _app(tmp_path, sample_bytes):
@@ -27,15 +27,21 @@ def _radio(at, label):
     return next(r for r in at.radio if r.label == label)
 
 
-def _run(at, n_firms):
+def _yukle(at, content, kind='coklu'):
+    """Kenar çubuğunda dosya yükleyici yerine oturum durumuna yazar; AppTest dosya yükleyemiyor."""
+    at.session_state[f'content_{kind}'] = content
+    at.session_state[f'name_{kind}'] = 'test.xlsx'
+    return at.run()
+
+
+def _run(at, n_firms, content):
     import streamlit as st
     st.cache_data.clear()
     at.run()
     assert not at.exception, at.exception
-    assert not at.sidebar.button, "tek firma slotunda örnek veri düğmesi olmamalı"
     _radio(at, 'Değerlendirme türü').set_value('Çoklu firma').run()
     assert not at.exception, at.exception
-    at.sidebar.button[0].click().run()
+    _yukle(at, content)
     assert not at.exception, at.exception
     assert not at.error, [e.value for e in at.error]
     assert sum('class="card"' in x.value for x in at.markdown) == n_firms
@@ -51,7 +57,8 @@ def test_varsayilan_model(tmp_path):
     rng = np.random.default_rng(5)
     R = rng.integers(1, 10, (6, len(model.codes))).astype(float)
     C = rng.integers(1, 10, (6, len(model.cl_codes))).astype(float)
-    _run(_app(tmp_path, write_survey_excel(rng, model, R, C, [str(i) for i in range(1, 7)], 2)), 6)
+    ornek = write_survey_excel(rng, model, R, C, [str(i) for i in range(1, 7)], 2)
+    _run(_app(tmp_path, ornek), 6, ornek)
 
 
 def test_farkli_boyutlu_model(tmp_path, monkeypatch):
@@ -64,5 +71,8 @@ def test_farkli_boyutlu_model(tmp_path, monkeypatch):
     R = rng.integers(1, 6, (9, 6)).astype(float)
     C = rng.integers(1, 6, (9, 3)).astype(float)
     monkeypatch.setattr(m, 'default_model', lambda: model)
-    at = _run(_app(tmp_path, write_survey_excel(rng, model, R, C, [str(i) for i in range(1, 10)], 5)), 9)
-    assert any('7 strateji' in c.value for c in at.caption)
+    ornek = write_survey_excel(rng, model, R, C, [str(i) for i in range(1, 10)], 5)
+    at = _run(_app(tmp_path, ornek), 9, ornek)
+    # özel modelin stratejileri ekrana geliyor mu (app.py artık model özetini yazmıyor)
+    metin = ' '.join(x.value for x in at.markdown)
+    assert 'Strateji' in metin

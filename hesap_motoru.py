@@ -89,12 +89,18 @@ class KnowledgeBase:
 
     def cn_kodlari(self, sektor: str | None = None) -> list:
         self._kontrol()
-        t = self.tablo if sektor is None else self.tablo[self.tablo['sektor'] == sektor]
+        assert self.tablo is not None       # _kontrol zaten garanti ediyor; tür denetimi için
+        # Yüklenen AB dosyasında sektör sütunu olmayabilir; o zaman süzgeç uygulanmaz.
+        if sektor is None or 'sektor' not in self.tablo.columns:
+            t = self.tablo
+        else:
+            t = self.tablo[self.tablo['sektor'] == sektor]
         return sorted(t['cn_kodu'].astype(str).unique())
 
     def varsayilan_deger(self, cn_kodu: str, yil: int = 2026) -> dict:
         """Bir ürün için marjsız ve marjlı varsayılan değer."""
         self._kontrol()
+        assert self.tablo is not None
         cn = ''.join(ch for ch in str(cn_kodu) if ch.isdigit())
         satir = self.tablo[self.tablo['cn_kodu'].astype(str) == cn]
         if satir.empty:

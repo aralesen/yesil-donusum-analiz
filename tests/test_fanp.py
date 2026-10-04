@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 FANP motoru testleri. Çalıştırma:  python -m pytest -q tests
 
@@ -140,7 +139,7 @@ def write_survey_excel(rng, model, R, C, ids, layout_seed):
     splits = np.array_split(order, n_blocks)
     offset = int(lr.integers(0, 4))
     header, cols = [], []
-    for b, part in enumerate(splits):
+    for part in splits:
         perm = lr.permutation(len(ids))                      # her blokta satır sırası farklı
         header.append('ID')
         cols.append([ids[p] for p in perm])
