@@ -27,7 +27,15 @@ def main():
     print(f'Sağlayıcı : {a.saglayici}')
     print(f'Anahtar   : {anahtar[:7]}...{anahtar[-4:]} ({len(anahtar)} karakter)')
     beklenen = {'anthropic': 'sk-ant-api', 'openai': 'sk-', 'google': 'AIza'}[a.saglayici]
-    if anahtar.startswith('sk-ant-admin'):
+    if anahtar.startswith('sk-ant-usr'):
+        print('⚠️  Bu bir kullanıcı oturum anahtarı, API anahtarı değil. Mesaj gönderemez. '
+              'platform.claude.com > Settings > API keys bölümünden sk-ant-api03 ile başlayan '
+              'bir anahtar oluşturun.')
+    elif anahtar.startswith('sk-ant-api01'):
+        print('⚠️  sk-ant-api01 öneki, claude.ai kurumsal ayarlarından alınan erişim anahtarına aittir; '
+              'mesaj gönderemez. platform.claude.com > Settings > API keys bölümünden sk-ant-api03 ile '
+              'başlayan bir anahtar oluşturun.')
+    elif anahtar.startswith('sk-ant-admin'):
         print('⚠️  Bu bir yönetici (admin) anahtarı. Mesaj gönderemez, her zaman 401 verir. '
               'Console > Settings > API keys bölümünden normal anahtar oluşturun.')
     elif not anahtar.startswith(beklenen):

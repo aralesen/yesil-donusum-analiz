@@ -177,9 +177,17 @@ with st.sidebar:
             _onek = {"anthropic": "sk-ant-api", "openai": "sk-", "google": "AIza"}[_saglayici]
             st.caption(f"Sağlayıcı: {_saglayici} · Kaynak: {_kaynak}")
             st.caption(f"Anahtar: {_anahtar[:10]}…{_anahtar[-4:]} · {len(_anahtar)} karakter")
-            if _anahtar.startswith("sk-ant-admin"):
+            if _anahtar.startswith("sk-ant-usr"):
+                st.error("Bu bir kullanıcı oturum anahtarı, API anahtarı değil. Mesaj gönderemez. "
+                         "platform.claude.com → Settings → API keys bölümünden sk-ant-api03 ile "
+                         "başlayan bir anahtar oluşturun.")
+            elif _anahtar.startswith("sk-ant-admin"):
                 st.error("Bu bir yönetici (admin) anahtarı. Mesaj gönderemez, 401 verir. "
                          "Console'da Settings → API keys bölümünden normal bir anahtar oluşturun.")
+            elif _anahtar.startswith("sk-ant-api01"):
+                st.error("Bu anahtar claude.ai kurumsal ayarlarından alınmış bir erişim anahtarı olabilir; "
+                         "mesaj gönderemez. platform.claude.com → Settings → API keys bölümünden "
+                         "sk-ant-api03 ile başlayan bir anahtar oluşturun.")
             elif not _anahtar.startswith(_onek):
                 st.error(f"Bu anahtar '{_onek}' ile başlamıyor; seçtiğiniz sağlayıcıya ait olmayabilir.")
             elif len(_anahtar) < 40:
