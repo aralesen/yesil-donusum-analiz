@@ -200,3 +200,45 @@ def test_alakasiz_400_atilmaz_hata_yuzeye_cikar(monkeypatch):
 ])
 def test_reddedilen_parametre_ayristirma(mesaj, beklenen):
     assert llm._reddedilen_parametre(mesaj) == beklenen
+
+
+# --------------------------------------------- ASCII dışı anahtar: okunur hata, kodlama çökmesi yok
+
+@pytest.mark.parametrize('anahtar', ['şifre', 'İŞte', 'ılık', 'sk-ant-api03-ğüzel'])
+def test_ascii_disi_anahtar_okunur_hata(anahtar):
+    """Türkçe harf latin-1 dışındadır; başlığa yazılırken çöken isteği önce yakalayıp anlatırız."""
+    with pytest.raises(llm.LLMHatasi, match='ASCII dışı'):
+        llm.Istemci(saglayici='anthropic', anahtar=anahtar)
+
+
+def test_hata_mesaji_bozuk_karakteri_isim_vererek_soyler():
+    with pytest.raises(llm.LLMHatasi) as e:
+        llm.dogrula_anahtar('İŞ', 'ANTHROPIC_API_KEY')
+    assert 'İ' in str(e.value) and 'Ş' in str(e.value)
+
+
+@pytest.mark.parametrize('ham, beklenen', [
+    (' sk-ant-api03-abc ', 'sk-ant-api03-abc'),
+    ('sk-ant-api03-abc\n', 'sk-ant-api03-abc'),
+    ('"sk-ant-api03-abc"', 'sk-ant-api03-abc'),
+    ('﻿sk-ant-api03-abc', 'sk-ant-api03-abc'),       # yapıştırmada gelen BOM
+    ('sk-ant-api03 -abc', 'sk-ant-api03-abc'),       # kırılmayan boşluk
+    ('sk-ant​-api03-abc', 'sk-ant-api03-abc'),       # sıfır genişlikli boşluk
+])
+def test_gorunmez_karakterler_atilir(ham, beklenen):
+    assert llm.temizle_anahtar(ham) == beklenen
+
+
+def test_ascii_disi_anahtar_model_listesinde_de_yakalanir(monkeypatch):
+    monkeypatch.setattr(llm, '_liste_al',
+                        lambda *a, **k: pytest.fail('ASCII dışı anahtarla ağa çıkılmamalı'))
+    with pytest.raises(llm.LLMHatasi, match='ASCII dışı'):
+        llm.modelleri_listele('anthropic', 'şifre')
+
+
+def test_temiz_anahtar_basliga_sorunsuz_yazilir(kayit, monkeypatch):
+    """Temizlikten sonra anahtar latin-1'e kodlanabilir olmalı; istek gerçekten gidebilir."""
+    kayit['saglayici'] = 'anthropic'
+    llm.Istemci(saglayici='anthropic', anahtar=' sk-ant-api03-abc ')('s', 'k')
+    kayit['basliklar']['x-api-key'].encode('latin-1')
+    assert kayit['basliklar']['x-api-key'] == 'sk-ant-api03-abc'

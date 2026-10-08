@@ -170,14 +170,18 @@ with st.sidebar:
         st.success("Yerel mod açık. Hesap motoru, Ek I varsayılanları, maliyet köprüsü ve FANP "
                    "tam çalışır; danışman dil modeli olmadan kaynaklı cevap verir.")
     else:
+        import llm_motor as _lm
         api_key = st.text_input("API Anahtarı", type="password",
-                                help="Chatbot cevapları için gereklidir. Firma verileriniz 'Gizlilik Perdesi' "
-                                     "arkasında yer tutucuya çevrilerek gönderilir; rakamlarınız "
-                                     "sağlayıcıya gitmez.")
+                                help="Secrets'a ya da ortam değişkenine eklediyseniz boş bırakın. "
+                                     "Firma verileriniz 'Gizlilik Perdesi' arkasında yer tutucuya "
+                                     "çevrilerek gönderilir; rakamlarınız sağlayıcıya gitmez.")
+        if not api_key and _lm.get_api_key("", llm_provider):
+            st.caption("Anahtar Secrets'tan okunuyor; kutuya yazmanız gerekmiyor.")
 
         # Model adı koda sabitlenmiyor: anahtarın gerçekten erişebildiği liste sağlayıcıdan sorulur.
-        if st.button("Kullanılabilir modelleri getir", width="stretch", disabled=not api_key):
-            import llm_motor as _lm
+        # Düğme kutuya değil, herhangi bir kaynaktan gelen anahtara bakar.
+        _anahtar_var = bool(_lm.get_api_key(api_key, llm_provider))
+        if st.button("Kullanılabilir modelleri getir", width="stretch", disabled=not _anahtar_var):
             try:
                 st.session_state["model_listesi"] = _lm.modelleri_getir(llm_provider, api_key)
             except Exception as e:                       # noqa: BLE001 (arayüzde çökme istemiyoruz)
@@ -206,7 +210,12 @@ with st.sidebar:
             _onek = {"anthropic": "sk-ant-api", "openai": "sk-", "google": "AIza"}[_saglayici]
             st.caption(f"Sağlayıcı: {_saglayici} · Kaynak: {_kaynak}")
             st.caption(f"Anahtar: {_anahtar[:10]}…{_anahtar[-4:]} · {len(_anahtar)} karakter")
-            if _anahtar.startswith("sk-ant-usr"):
+            if not _anahtar.isascii():
+                _bozuk = " ".join(sorted({k for k in _anahtar if not k.isascii()}))
+                st.error(f"Anahtarda ASCII dışı karakter var: {_bozuk}. HTTP başlıkları Türkçe harf "
+                         "taşıyamaz. Kutuya anahtar yerine metin yazılmış ya da anahtar elle "
+                         "yazılırken bozulmuş olabilir; kopyalayıp yeniden yapıştırın.")
+            elif _anahtar.startswith("sk-ant-usr"):
                 st.error("Bu bir kullanıcı oturum anahtarı, API anahtarı değil. Mesaj gönderemez. "
                          "platform.claude.com → Settings → API keys bölümünden sk-ant-api03 ile "
                          "başlayan bir anahtar oluşturun.")

@@ -16,6 +16,7 @@ import json
 import os
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 
@@ -53,16 +54,44 @@ class LLMHatasi(RuntimeError):
     """Sağlayıcıdan geçerli bir cevap alınamadığında fırlatılır."""
 
 
+# Kopyala yapıştırda araya giren, gözle görünmeyen karakterler. Anahtarın içinde kalırlarsa
+# istek ya 401 verir ya da başlığa yazılırken kodlama hatasına düşer.
+_GORUNMEZ = dict.fromkeys(
+    map(ord, ' ​‌‍‎‏  ﻿\t\r\n '), None)
+
+
+def temizle_anahtar(anahtar) -> str:
+    """Anahtarı görünmez karakterlerden ve tırnaklardan arındırır."""
+    return str(anahtar or '').translate(_GORUNMEZ).strip('"\'')
+
+
+def dogrula_anahtar(anahtar: str, ad: str) -> str:
+    """Anahtarın HTTP başlığına yazılabilir olduğunu sınar.
+
+    HTTP başlıkları Türkçe harf taşıyamaz: ı, İ, ş, ğ gibi karakterler latin-1 dışındadır ve
+    istek gönderilirken kodlama hatası verir. Hata mesajı okunmaz olduğu için burada yakalanıp
+    hangi karakterin sorun çıkardığı söylenir.
+    """
+    anahtar = temizle_anahtar(anahtar)
+    if not anahtar.isascii():
+        bozuk = ' '.join(sorted({k for k in anahtar if not k.isascii()}))
+        raise LLMHatasi(
+            f'{ad} alanında ASCII dışı karakter var: {bozuk}. Anahtar kutusuna anahtar yerine '
+            'Türkçe metin yazılmış ya da anahtar elle yazılırken bozulmuş olabilir. Sağlayıcının '
+            'sayfasından kopyalayıp yeniden yapıştırın.')
+    return anahtar
+
+
 def anahtar_bul(saglayici: str) -> str | None:
     """Anahtarı önce ortam değişkeninde, sonra Streamlit secrets'ta arar. Kodda aramaz."""
     ad = SAGLAYICILAR[saglayici]['anahtar_adi']
     anahtar = os.environ.get(ad)
     if anahtar:
-        return anahtar.strip().strip('"\'')
+        return temizle_anahtar(anahtar)
     try:
         import streamlit as st
         deger = st.secrets.get(ad)         # .streamlit/secrets.toml ya da bulut ayarları
-        return str(deger).strip().strip('"\'') if deger else None
+        return temizle_anahtar(deger) if deger else None
     except Exception:
         return None
 
@@ -142,10 +171,12 @@ def modelleri_listele(saglayici: str, anahtar: str = '') -> list[str]:
     if saglayici not in SAGLAYICILAR:
         raise ValueError(f'Bilinmeyen sağlayıcı: {saglayici}. '
                          f"Seçenekler: {', '.join(SAGLAYICILAR)}")
-    anahtar = (anahtar or anahtar_bul(saglayici) or '').strip().strip('"\'')
+    ad = SAGLAYICILAR[saglayici]['anahtar_adi']
+    anahtar = temizle_anahtar(anahtar) or anahtar_bul(saglayici) or ''
     if not anahtar:
-        raise LLMHatasi(f"{SAGLAYICILAR[saglayici]['anahtar_adi']} bulunamadı.")
-    url = MODEL_LISTESI_URL[saglayici].format(anahtar=anahtar)
+        raise LLMHatasi(f'{ad} bulunamadı.')
+    anahtar = dogrula_anahtar(anahtar, ad)
+    url = MODEL_LISTESI_URL[saglayici].format(anahtar=urllib.parse.quote(anahtar, safe=''))
     basliklar = {
         'openai': {'Authorization': f'Bearer {anahtar}'},
         'anthropic': {'x-api-key': anahtar, 'anthropic-version': '2023-06-01'},
@@ -159,6 +190,9 @@ def modelleri_listele(saglayici: str, anahtar: str = '') -> list[str]:
                  403: ' Anahtarın model listesine erişimi yok.'}.get(e.code, '')
         raise LLMHatasi(f'{saglayici} model listesi alınamadı ({e.code}).{ipucu}'
                         + (f' Sağlayıcının mesajı: {detay}' if detay else '')) from e
+    except UnicodeEncodeError as e:
+        raise LLMHatasi('Model listesi istenemedi: anahtar ASCII dışı karakter içeriyor. '
+                        f'Anahtarı kopyalayıp yeniden yapıştırın. ({e})') from e
     except (urllib.error.URLError, TimeoutError) as e:
         raise LLMHatasi(f'{saglayici} erişilemedi: {e}') from e
     adlar = _model_adlari(saglayici, govde)
@@ -189,10 +223,11 @@ class Istemci:
         ayar = SAGLAYICILAR[self.saglayici]
         self.model = self.model or ayar['varsayilan_model']
         # Kopyalarken araya giren boşluk, satır sonu ve tırnak 401'e sebep oluyor; temizlenir.
-        self.anahtar = (self.anahtar or anahtar_bul(self.saglayici) or '').strip().strip('"\'')
+        self.anahtar = temizle_anahtar(self.anahtar) or anahtar_bul(self.saglayici) or ''
         if not self.anahtar:
             raise LLMHatasi(f"{ayar['anahtar_adi']} bulunamadı. Ortam değişkeni ya da "
                             'Streamlit secrets içine ekleyin; koda yazmayın.')
+        self.anahtar = dogrula_anahtar(self.anahtar, ayar['anahtar_adi'])
 
     # ------------------------------------------------------------------ istek gövdeleri
     def _govde(self, sistem: str, kullanici: str):
@@ -258,6 +293,10 @@ class Istemci:
                          }.get(e.code, '')
                 raise LLMHatasi(f'{self.saglayici} hatası {e.code}: {e.reason}.{ipucu}'
                                 + (f' Sağlayıcının mesajı: {detay}' if detay else '')) from e
+            except UnicodeEncodeError as e:
+                raise LLMHatasi(
+                    'İstek gönderilemedi: anahtar ya da başlık ASCII dışı karakter içeriyor. '
+                    f'Anahtarı sağlayıcının sayfasından kopyalayıp yeniden yapıştırın. ({e})') from e
             except (urllib.error.URLError, TimeoutError) as e:
                 son_hata = e
                 deneme += 1

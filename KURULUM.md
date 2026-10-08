@@ -54,7 +54,7 @@ Bulutta aynı satır uygulama ayarlarındaki **Secrets** bölümüne yazılır. 
 
 ```bash
 pip install -r requirements.txt pytest ruff mypy
-python -m pytest -q        # 466 test geçmeli
+python -m pytest -q        # 479 test geçmeli
 ruff check .               # temiz
 streamlit run app.py
 ```
@@ -92,6 +92,14 @@ python anahtar_testi.py --model <listeden-bir-ad>       # o modelle tek istek at
 
 Sağlayıcı bir üretim ayarını emekliye ayırırsa (örneğin `temperature` artık kabul edilmiyorsa)
 istemci o ayarı atıp isteği kendisi yeniliyor. Tek bir ayar yüzünden cevap kaybedilmiyor.
+
+### "latin-1 codec can't encode" hatası
+
+Anahtar kutusunda ASCII dışı karakter var demektir. HTTP başlıkları Türkçe harf taşıyamaz:
+`ı`, `İ`, `ş`, `ğ` latin-1 dışındadır. Genelde iki sebepten olur, kutuya anahtar yerine Türkçe
+metin yazılmıştır ya da anahtar elle yazılırken bozulmuştur. Kenar çubuğundaki **Anahtar tanısı**
+bölümü hangi karakterin sorun çıkardığını isim vererek söyler. Kopyala yapıştırda gelen görünmez
+karakterler (BOM, kırılmayan boşluk, sıfır genişlikli boşluk) ise sessizce temizlenir.
 
 ### Anthropic anahtarı nereden alınır
 
