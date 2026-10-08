@@ -158,20 +158,49 @@ with st.sidebar:
     
     # --- 4. LLM (YAPAY ZEKA) DANIŞMAN ---
     st.header("4. Yapay Zeka Danışman (LLM)")
-    llm_provider = st.selectbox("Sağlayıcı Seçin", ["Anthropic (Claude)", "Google (Gemini)", "OpenAI (GPT)"])
-    api_key = st.text_input("API Anahtarı", type="password",
-                            help="Chatbot cevapları için gereklidir. Firma verileriniz 'Gizlilik Perdesi' "
-                                 "arkasında yer tutucuya çevrilerek gönderilir; rakamlarınız sağlayıcıya gitmez.")
-    llm_model = st.text_input("Model adı (isteğe bağlı)", value="",
-                              help="Boş bırakılırsa sağlayıcının güncel sürümü kullanılır. "
-                                   "404 hatası alırsanız buraya güncel model adını yazın.")
+    llm_provider = st.selectbox(
+        "Sağlayıcı Seçin",
+        ["Yerel mod (dil modeli yok)", "Anthropic (Claude)", "Google (Gemini)", "OpenAI (GPT)"],
+        help="Yerel modda hiçbir veri dışarı çıkmaz: danışman yüklenen mevzuat ve hesap "
+             "sonuçları içinden kaynak göstererek cevap verir.")
+    yerel_mod = llm_provider.startswith("Yerel")
+
+    if yerel_mod:
+        api_key, llm_model = "", ""
+        st.success("Yerel mod açık. Hesap motoru, Ek I varsayılanları, maliyet köprüsü ve FANP "
+                   "tam çalışır; danışman dil modeli olmadan kaynaklı cevap verir.")
+    else:
+        api_key = st.text_input("API Anahtarı", type="password",
+                                help="Chatbot cevapları için gereklidir. Firma verileriniz 'Gizlilik Perdesi' "
+                                     "arkasında yer tutucuya çevrilerek gönderilir; rakamlarınız "
+                                     "sağlayıcıya gitmez.")
+
+        # Model adı koda sabitlenmiyor: anahtarın gerçekten erişebildiği liste sağlayıcıdan sorulur.
+        if st.button("Kullanılabilir modelleri getir", width="stretch", disabled=not api_key):
+            import llm_motor as _lm
+            try:
+                st.session_state["model_listesi"] = _lm.modelleri_getir(llm_provider, api_key)
+            except Exception as e:                       # noqa: BLE001 (arayüzde çökme istemiyoruz)
+                st.session_state["model_listesi"] = []
+                st.error(f"Liste alınamadı: {e}")
+
+        _liste = st.session_state.get("model_listesi") or []
+        if _liste:
+            st.caption(f"{len(_liste)} model bulundu. Anahtarınız bunlara erişiyor.")
+            llm_model = st.selectbox("Model", _liste, key="model_secimi")
+        else:
+            llm_model = st.text_input("Model adı (isteğe bağlı)", value="",
+                                      help="Boş bırakılırsa sağlayıcının güncel sürümü kullanılır. "
+                                           "404 alıyorsanız yukarıdaki düğmeyle listeyi getirin.")
 
     with st.expander("🔍 Anahtar tanısı"):
         import llm_motor as _lm
         _saglayici = _lm.saglayici_coz(llm_provider)
-        _anahtar = _lm.get_api_key(api_key, llm_provider)
+        _anahtar = "" if yerel_mod else _lm.get_api_key(api_key, llm_provider)
         _kaynak = "kenar çubuğundaki kutu" if api_key else "ortam değişkeni ya da Secrets"
-        if not _anahtar:
+        if yerel_mod:
+            st.info("Yerel modda anahtar kullanılmıyor, dışarıya istek gitmiyor.")
+        elif not _anahtar:
             st.warning("Anahtar bulunamadı. Kutuya yazın ya da Secrets bölümüne ekleyin.")
         else:
             _onek = {"anthropic": "sk-ant-api", "openai": "sk-", "google": "AIza"}[_saglayici]

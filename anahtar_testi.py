@@ -4,6 +4,7 @@ Anahtarın gerçekten çalışıp çalışmadığını tek başına sınar. Uygu
     python anahtar_testi.py                      # ortam değişkeni ya da secrets'tan okur
     python anahtar_testi.py --anahtar sk-ant-... # elle verir
     python anahtar_testi.py --saglayici google
+    python anahtar_testi.py --modeller          # anahtarın erişebildiği modelleri listeler
 """
 
 import argparse
@@ -17,6 +18,8 @@ def main():
     ap.add_argument('--saglayici', default='anthropic', choices=sorted(llm.SAGLAYICILAR))
     ap.add_argument('--anahtar', default='')
     ap.add_argument('--model', default='')
+    ap.add_argument('--modeller', action='store_true',
+                    help='istek atmak yerine anahtarın erişebildiği model adlarını listeler')
     a = ap.parse_args()
 
     ad = llm.SAGLAYICILAR[a.saglayici]['anahtar_adi']
@@ -43,6 +46,16 @@ def main():
     elif len(anahtar) < 40:
         print('⚠️  Anahtar fazla kısa; kopyalanırken kesilmiş olabilir.')
 
+    if a.modeller:
+        try:
+            adlar = llm.modelleri_listele(a.saglayici, anahtar)
+        except llm.LLMHatasi as e:
+            raise SystemExit(f'\n❌ {e}') from e
+        print(f'\n{len(adlar)} model bulundu:')
+        for ad in adlar:
+            print('  ', ad)
+        return
+
     model = a.model or VARSAYILAN_MODELLER[a.saglayici]
     print(f'Model     : {model}\nİstek gönderiliyor...')
     try:
@@ -55,6 +68,9 @@ def main():
                   'ya da başka bir sağlayıcıya ait.')
         if '400' in str(e):
             print('   400 genelde kredi bakiyesi ya da model adıyla ilgilidir.')
+        if '404' in str(e):
+            print('   404 model adıyla ilgilidir. Şunu çalıştırıp listeden bir ad seçin:')
+            print(f'     python anahtar_testi.py --saglayici {a.saglayici} --modeller')
 
 
 if __name__ == '__main__':

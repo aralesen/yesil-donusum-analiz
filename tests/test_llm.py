@@ -1,4 +1,6 @@
 """İstemci testleri. Ağa çıkılmaz: gönderim fonksiyonu sahteyle değiştirilir."""
+import io
+import json
 import os
 import sys
 import urllib.error
@@ -118,3 +120,83 @@ def test_danismanla_birlikte_calisir(kayit, monkeypatch):
     sonuc = d.cevapla('marj oranı nedir')
     assert sonuc['llm'] and sonuc['cevap'] == 'cevap metni'
     assert 'Marj 2026' in kayit['govde']['messages'][0]['content']
+
+
+# ------------------------------------------- sağlayıcının reddettiği ayarı atıp yeniden deneme
+
+def _reddeden(saglayici, ad, mesaj, kutu):
+    """İlk istekte parametreyi reddeder, ikincisinde cevap verir."""
+    def sahte(url, govde, basliklar, zaman_asimi):
+        kutu['cagri'] = kutu.get('cagri', 0) + 1
+        kutu['son_govde'] = json.loads(json.dumps(govde))
+        var = ad in govde or ad in govde.get('generationConfig', {})
+        if var:
+            raise urllib.error.HTTPError(
+                url, 400, 'Bad Request', {},
+                io.BytesIO(json.dumps({'error': {'message': mesaj}}).encode()))
+        return CEVAPLAR[saglayici]
+    return sahte
+
+
+def test_emekli_parametre_atilip_cevap_alinir(monkeypatch):
+    """`temperature` emekliye ayrıldıysa tek ayar yüzünden cevap kaybedilmez."""
+    monkeypatch.setenv('ANTHROPIC_API_KEY', 'x')
+    kutu = {}
+    monkeypatch.setattr(llm.Istemci, '_gonder',
+                        staticmethod(_reddeden('anthropic', 'temperature',
+                                               '`temperature` is deprecated for this model.', kutu)))
+    istemci = llm.istemci_olustur('anthropic')
+    assert istemci('s', 'k') == 'cevap metni'
+    assert kutu['cagri'] == 2 and 'temperature' not in kutu['son_govde']
+    assert istemci.atilan_ayarlar == ['temperature']
+
+
+def test_google_ayari_ic_sozlukten_atilir(monkeypatch):
+    """Google'da ayarlar generationConfig içinde durur; atma oraya da bakmalı."""
+    monkeypatch.setenv('GOOGLE_API_KEY', 'AIza-x')
+    kutu = {}
+    monkeypatch.setattr(llm.Istemci, '_gonder',
+                        staticmethod(_reddeden('google', 'temperature',
+                                               'temperature is not supported', kutu)))
+    assert llm.istemci_olustur('google')('s', 'k') == 'cevap metni'
+    assert 'temperature' not in kutu['son_govde']['generationConfig']
+    assert kutu['son_govde']['generationConfig']['maxOutputTokens'] > 0   # diğer ayar korunur
+
+
+def test_tek_denemede_de_duzeltme_yapilir(monkeypatch):
+    """Ayar atma bir hata değil; deneme bütçesini tüketmemeli (anahtar_testi deneme=1 kullanır)."""
+    monkeypatch.setenv('ANTHROPIC_API_KEY', 'x')
+    kutu = {}
+    monkeypatch.setattr(llm.Istemci, '_gonder',
+                        staticmethod(_reddeden('anthropic', 'temperature',
+                                               '`temperature` is deprecated', kutu)))
+    assert llm.Istemci(saglayici='anthropic', anahtar='x', deneme=1)('s', 'k') == 'cevap metni'
+
+
+def test_alakasiz_400_atilmaz_hata_yuzeye_cikar(monkeypatch):
+    """Kredi bakiyesi gibi gerçek bir 400'de ayar atıp sonsuz denemeye girilmemeli."""
+    monkeypatch.setenv('ANTHROPIC_API_KEY', 'x')
+    kutu = {'cagri': 0}
+
+    def sahte(url, govde, basliklar, zaman_asimi):
+        kutu['cagri'] += 1
+        raise urllib.error.HTTPError(
+            url, 400, 'Bad Request', {},
+            io.BytesIO(json.dumps({'error': {'message': 'credit balance is too low'}}).encode()))
+
+    monkeypatch.setattr(llm.Istemci, '_gonder', staticmethod(sahte))
+    with pytest.raises(llm.LLMHatasi, match='credit balance'):
+        llm.istemci_olustur('anthropic')('s', 'k')
+    assert kutu['cagri'] == 1
+
+
+@pytest.mark.parametrize('mesaj, beklenen', [
+    ('`temperature` is deprecated for this model.', 'temperature'),
+    ('top_p is not supported with this model', 'top_p'),
+    ('Extra inputs are not permitted: top_k', 'top_k'),
+    ('credit balance is too low', None),
+    ('model not found', None),
+    ('', None),
+])
+def test_reddedilen_parametre_ayristirma(mesaj, beklenen):
+    assert llm._reddedilen_parametre(mesaj) == beklenen

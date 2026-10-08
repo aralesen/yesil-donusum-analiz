@@ -54,10 +54,47 @@ Bulutta aynı satır uygulama ayarlarındaki **Secrets** bölümüne yazılır. 
 
 ```bash
 pip install -r requirements.txt pytest ruff mypy
-python -m pytest -q        # 449 test geçmeli
+python -m pytest -q        # 466 test geçmeli
 ruff check .               # temiz
 streamlit run app.py
 ```
 
 RAG (PDF araması) istiyorsan ayrıca `pip install -r requirements-rag.txt` ve `bilgi_havuzu/`
 klasörüne PDF koy. Bulutta kurulum süresini ve belleği artırır; danışman onsuz da çalışır.
+
+
+## Dil modeli: üç durum, hiçbiri uygulamayı durdurmaz
+
+Hesap motoru, Ek I varsayılanları, maliyet köprüsü ve FANP dil modeline bağlı değil. Dil modeli
+yalnızca danışmanın cevabını akıcı hale getiriyor. Üç seçenek var:
+
+| Sağlayıcı seçimi | Ne olur | Anahtar |
+|---|---|---|
+| **Yerel mod (dil modeli yok)** | Danışman BM25 ile en ilgili mevzuat ve hesap kaydını bulup kaynak göstererek cevap verir. Dışarıya hiçbir istek gitmez. | Gerekmez |
+| Anthropic / Google / OpenAI | Aynı bağlam, dil modeliyle toparlanmış cevap. Firma verisi Gizlilik Perdesi arkasında yer tutucuya çevrilerek gider. | Gerekir |
+
+Yerel mod seçiliyken ortam değişkeninde ya da Secrets'ta anahtar dursa bile kullanılmaz; "veri
+dışarı çıkmıyor" sözü koşullu değil.
+
+### Model adı sorunları
+
+Model adını koda sabitlemek işe yaramıyor: sürümler emekliye ayrılıyor ve her anahtarın erişimi
+farklı. Bu yüzden ad tahmin edilmiyor, sağlayıcıya soruluyor.
+
+* Arayüzde: **Kullanılabilir modelleri getir** düğmesi anahtarın erişebildiği modelleri listeler,
+  seçim açılır listeden yapılır.
+* Komut satırında:
+
+```bash
+python anahtar_testi.py --modeller                      # erişilebilen modelleri listeler
+python anahtar_testi.py --model <listeden-bir-ad>       # o modelle tek istek atar
+```
+
+Sağlayıcı bir üretim ayarını emekliye ayırırsa (örneğin `temperature` artık kabul edilmiyorsa)
+istemci o ayarı atıp isteği kendisi yeniliyor. Tek bir ayar yüzünden cevap kaybedilmiyor.
+
+### Anthropic anahtarı nereden alınır
+
+API anahtarı claude.ai hesabından değil, Anthropic Console'dan (console.anthropic.com) alınır ve
+`sk-ant-api03-` ile başlar. `sk-ant-usr-`, `sk-ant-api01-` ve `sk-ant-admin-` önekleri mesaj
+gönderemez; kenar çubuğundaki **Anahtar tanısı** bölümü bu üçünü isim vererek söyler.

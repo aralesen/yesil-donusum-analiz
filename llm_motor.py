@@ -24,12 +24,9 @@ SAGLAYICI_ESLEME = {
     'gpt': 'openai', 'openai': 'openai',
 }
 
-# Takma adlar: sağlayıcı en güncel kararlı sürüme yönlendirir, model emekli olunca kod kırılmaz.
-VARSAYILAN_MODELLER = {
-    'google': 'gemini-flash-latest',
-    'anthropic': 'claude-sonnet-5-5',
-    'openai': 'gpt-5.6-sol',
-}
+# Varsayılanlar tek yerde durur: karbon/llm.py. İki dosyada ayrı liste tutulursa biri eskir ve
+# hangi yoldan çağrıldığına göre farklı model istenir; o fark 404 olarak geri döner.
+VARSAYILAN_MODELLER = {ad: ayar['varsayilan_model'] for ad, ayar in llm.SAGLAYICILAR.items()}
 
 # Dosya yüklenmemiş olsa bile danışmanın dayanabileceği, kaynağı belli temel bilgiler.
 YERLESIK_KAYNAKLAR = {
@@ -56,11 +53,28 @@ def saglayici_coz(provider: str) -> str:
     return 'google'
 
 
+def yerel_mi(provider) -> bool:
+    """Yerel mod seçiliyse dışarıya hiç istek atılmaz."""
+    return 'yerel' in str(provider or '').lower()
+
+
 def get_api_key(kullanici_girisi, provider):
-    """Önce kullanıcının yazdığı anahtar, sonra ortam değişkeni ya da Streamlit secrets."""
+    """Önce kullanıcının yazdığı anahtar, sonra ortam değişkeni ya da Streamlit secrets.
+
+    Yerel modda hiçbir anahtar döndürülmez: ortamda duran bir anahtar sessizce devreye girip
+    'veri dışarı çıkmıyor' sözünü bozmasın.
+    """
+    if yerel_mi(provider):
+        return None
     if kullanici_girisi:
         return str(kullanici_girisi).strip().strip('"\'')
     return llm.anahtar_bul(saglayici_coz(provider))
+
+
+def modelleri_getir(provider, api_key_input) -> list:
+    """Arayüz için: anahtarın erişebildiği model adları. Hata metni çağırana bırakılır."""
+    saglayici = saglayici_coz(provider)
+    return llm.modelleri_listele(saglayici, get_api_key(api_key_input, provider) or '')
 
 
 def _parcalara_cevir(mevzuat_parcalari) -> list:
@@ -104,15 +118,20 @@ def danismana_sor(soru, mevzuat_parcalari, firma_verisi, provider, api_key_input
         sonuc = danisman.cevapla(soru, firma=firma_verisi)
     except llm.LLMHatasi as e:
         return (f"⚠️ Dil modeline ulaşılamadı: {e}\n\n"
-                'Anahtarı ve model adını kontrol edin. 404 alıyorsanız sağlayıcı o model sürümünü '
-                'emekliye ayırmış olabilir; ayarlardan güncel model adını yazabilirsiniz.')
+                'Kenar çubuğundaki "Kullanılabilir modelleri getir" düğmesiyle anahtarınızın '
+                'erişebildiği modelleri listeleyip birini seçebilirsiniz. Sorun sürerse sağlayıcıyı '
+                '"Yerel mod" yapın: hesap motoru, Ek I varsayılanları ve maliyet köprüsü dil modeli '
+                'olmadan da tam çalışır.')
     except RuntimeError as e:
         return f'⚠️ Gizlilik kontrolü gönderimi durdurdu: {e}'
 
     cevap = sonuc['cevap']
     if not sonuc['llm'] and not anahtar:
-        cevap = ('ℹ️ API anahtarı girilmediği için dil modeli devrede değil; aşağıda sorunuzla '
-                 'en ilgili doğrulanmış kayıtlar var.\n\n' + cevap)
+        giris = ('ℹ️ Yerel mod: hiçbir veri dışarı çıkmadı. Aşağıda sorunuzla en ilgili '
+                 'doğrulanmış kayıtlar var.\n\n' if yerel_mi(provider) else
+                 'ℹ️ API anahtarı girilmediği için dil modeli devrede değil; aşağıda sorunuzla '
+                 'en ilgili doğrulanmış kayıtlar var.\n\n')
+        cevap = giris + cevap
     if sonuc.get('uydurulan_yer_tutucular'):
         cevap += ('\n\n⚠️ Model, karşılığı olmayan bir yer tutucu üretti: '
                   + ', '.join(sonuc['uydurulan_yer_tutucular']))

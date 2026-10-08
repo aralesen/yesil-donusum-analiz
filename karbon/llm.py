@@ -33,9 +33,20 @@ SAGLAYICILAR = {
     'google': {
         'url': 'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent',
         'anahtar_adi': 'GOOGLE_API_KEY',
-        'varsayilan_model': 'gemini-3.1-pro',
+        'varsayilan_model': 'gemini-flash-latest',
     },
 }
+
+# Anahtarın erişebildiği modelleri sormak için kullanılan adresler.
+MODEL_LISTESI_URL = {
+    'openai': 'https://api.openai.com/v1/models',
+    'anthropic': 'https://api.anthropic.com/v1/models?limit=100',
+    'google': 'https://generativelanguage.googleapis.com/v1beta/models?key={anahtar}',
+}
+
+# Sohbet uçlarına gitmeyen model türleri; listeyi okunur tutmak için ayıklanır.
+_SOHBET_DISI = ('embedding', 'whisper', 'tts', 'dall-e', 'moderation', 'audio',
+                'image', 'realtime', 'transcribe', 'search', 'aqa')
 
 
 class LLMHatasi(RuntimeError):
@@ -75,6 +86,88 @@ def _istek_at(url: str, govde: dict, basliklar: dict, zaman_asimi: int) -> dict:
         return json.loads(cevap.read().decode('utf-8'))
 
 
+# Cevabın doğruluğunu etkilemeyen, sağlayıcı reddederse atılabilen üretim ayarları.
+_ATILABILIR = ('temperature', 'top_p', 'top_k')
+_RET_ISARETI = ('deprecated', 'not supported', 'unsupported', 'not permitted',
+                'unexpected', 'cannot be specified', 'may not be used')
+
+
+def _reddedilen_parametre(mesaj: str) -> str | None:
+    """Sağlayıcı bir üretim ayarını reddettiyse adını verir.
+
+    Modeller zamanla parametre emekliye ayırıyor (örneğin temperature). Adı buradan okunup
+    o alan atılır ve istek yenilenir; yoksa tek bir ayar yüzünden bütün cevap kaybolur.
+    """
+    kucuk = (mesaj or '').lower()
+    if not any(isaret in kucuk for isaret in _RET_ISARETI):
+        return None
+    return next((ad for ad in _ATILABILIR if ad in kucuk), None)
+
+
+def _parametreyi_at(govde: dict, ad: str) -> bool:
+    """Ayarı gövdeden siler. Google'da ayarlar generationConfig içinde durur."""
+    if ad in govde:
+        govde.pop(ad)
+        return True
+    ic = govde.get('generationConfig')
+    if isinstance(ic, dict) and ad in ic:
+        ic.pop(ad)
+        return True
+    return False
+
+
+def _liste_al(url: str, basliklar: dict, zaman_asimi: int = 30) -> dict:
+    istek = urllib.request.Request(url, headers=basliklar, method='GET')
+    with urllib.request.urlopen(istek, timeout=zaman_asimi) as cevap:   # noqa: S310 (sabit https adresleri)
+        return json.loads(cevap.read().decode('utf-8'))
+
+
+def _model_adlari(saglayici: str, govde: dict) -> list[str]:
+    """Sağlayıcının liste cevabından sohbete uygun model adlarını çıkarır."""
+    if saglayici == 'google':
+        adlar = [str(m.get('name', '')).removeprefix('models/')
+                 for m in govde.get('models', [])
+                 if 'generateContent' in m.get('supportedGenerationMethods', [])]
+    else:
+        adlar = [str(m.get('id', '')) for m in govde.get('data', [])]
+    return sorted({a for a in adlar if a and not any(d in a.lower() for d in _SOHBET_DISI)})
+
+
+def modelleri_listele(saglayici: str, anahtar: str = '') -> list[str]:
+    """Anahtarın gerçekten erişebildiği model adlarını sağlayıcıdan sorar.
+
+    Model adını koda sabitlemek 404'e yol açıyor: sürümler emekliye ayrılıyor ve her anahtarın
+    erişim kümesi farklı. Tahmin etmek yerine sağlayıcıya sorulur; arayüz çıkan listeyi gösterir.
+    """
+    if saglayici not in SAGLAYICILAR:
+        raise ValueError(f'Bilinmeyen sağlayıcı: {saglayici}. '
+                         f"Seçenekler: {', '.join(SAGLAYICILAR)}")
+    anahtar = (anahtar or anahtar_bul(saglayici) or '').strip().strip('"\'')
+    if not anahtar:
+        raise LLMHatasi(f"{SAGLAYICILAR[saglayici]['anahtar_adi']} bulunamadı.")
+    url = MODEL_LISTESI_URL[saglayici].format(anahtar=anahtar)
+    basliklar = {
+        'openai': {'Authorization': f'Bearer {anahtar}'},
+        'anthropic': {'x-api-key': anahtar, 'anthropic-version': '2023-06-01'},
+        'google': {},
+    }[saglayici]
+    try:
+        govde = _liste_al(url, basliklar)
+    except urllib.error.HTTPError as e:
+        detay = _hata_metni(e)
+        ipucu = {401: ' Anahtar geçersiz ya da başka bir sağlayıcıya ait.',
+                 403: ' Anahtarın model listesine erişimi yok.'}.get(e.code, '')
+        raise LLMHatasi(f'{saglayici} model listesi alınamadı ({e.code}).{ipucu}'
+                        + (f' Sağlayıcının mesajı: {detay}' if detay else '')) from e
+    except (urllib.error.URLError, TimeoutError) as e:
+        raise LLMHatasi(f'{saglayici} erişilemedi: {e}') from e
+    adlar = _model_adlari(saglayici, govde)
+    if not adlar:
+        raise LLMHatasi(f'{saglayici} sohbete uygun model döndürmedi; '
+                        'anahtarın bağlı olduğu hesapta erişim açılmamış olabilir.')
+    return adlar
+
+
 @dataclass
 class Istemci:
     """Tek bir sağlayıcıya bağlı, yeniden denemeli istemci."""
@@ -89,6 +182,7 @@ class Istemci:
     _gonder = staticmethod(_istek_at)
 
     def __post_init__(self):
+        self.atilan_ayarlar: list[str] = []      # sağlayıcının reddettiği ve atılan ayarlar
         if self.saglayici not in SAGLAYICILAR:
             raise ValueError(f'Bilinmeyen sağlayıcı: {self.saglayici}. '
                              f"Seçenekler: {', '.join(SAGLAYICILAR)}")
@@ -136,7 +230,9 @@ class Istemci:
     def __call__(self, sistem: str, kullanici: str) -> str:
         url, govde, basliklar = self._govde(sistem, kullanici)
         son_hata: Exception | None = None
-        for deneme in range(self.deneme):
+        deneme = 0
+        duzeltme = 0        # reddedilen ayarı atma; bu bir hata değil, denemeyi tüketmez
+        while deneme < self.deneme:
             try:
                 cevap = type(self)._gonder(url, govde, basliklar, self.zaman_asimi)
                 metin = self._metni_cikar(self.saglayici, cevap)
@@ -146,19 +242,27 @@ class Istemci:
             except urllib.error.HTTPError as e:
                 son_hata = e
                 detay = _hata_metni(e)
-                if e.code in (429, 500, 502, 503, 504) and deneme < self.deneme - 1:
-                    time.sleep(2 ** deneme)        # kısa bekleyip tekrar dene
+                ad = _reddedilen_parametre(detay) if e.code == 400 else None
+                if ad and duzeltme < len(_ATILABILIR) and _parametreyi_at(govde, ad):
+                    self.atilan_ayarlar.append(ad)
+                    duzeltme += 1
+                    continue                   # aynı isteği, o ayar olmadan yeniden gönder
+                deneme += 1
+                if e.code in (429, 500, 502, 503, 504) and deneme < self.deneme:
+                    time.sleep(2 ** (deneme - 1))      # kısa bekleyip tekrar dene
                     continue
                 ipucu = {401: ' Anahtar geçersiz ya da başka bir sağlayıcıya ait olabilir.',
                          403: ' Anahtarın bu modele erişimi yok.',
-                         404: ' Model adı geçersiz olabilir.',
-                         400: ' İstek reddedildi; kredi bakiyesi ve model adı kontrol edilmeli.'}.get(e.code, '')
+                         404: ' Model adı geçersiz olabilir; modelleri listeleyip birini seçin.',
+                         400: ' Kredi bakiyesi, model adı ve istek alanları kontrol edilmeli.',
+                         }.get(e.code, '')
                 raise LLMHatasi(f'{self.saglayici} hatası {e.code}: {e.reason}.{ipucu}'
                                 + (f' Sağlayıcının mesajı: {detay}' if detay else '')) from e
             except (urllib.error.URLError, TimeoutError) as e:
                 son_hata = e
-                if deneme < self.deneme - 1:
-                    time.sleep(2 ** deneme)
+                deneme += 1
+                if deneme < self.deneme:
+                    time.sleep(2 ** (deneme - 1))
                     continue
                 raise LLMHatasi(f'{self.saglayici} erişilemedi: {e}') from e
         raise LLMHatasi(f'{self.saglayici} cevap vermedi: {son_hata}')

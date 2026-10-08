@@ -116,3 +116,64 @@ def test_cevapta_kaynak_satiri_var(kayit):
     cevap = lm.danismana_sor('marj oranı nedir', '', None, 'Google (Gemini)', 'anahtar')
     assert cevap.startswith('bağlama dayalı cevap')
     assert '**Kaynaklar:**' in cevap
+
+
+# --------------------------------------------------------- model listesi ve yerel mod
+
+LISTE_CEVABI = {
+    'google': {'models': [
+        {'name': 'models/gemini-flash-latest', 'supportedGenerationMethods': ['generateContent']},
+        {'name': 'models/text-embedding-004', 'supportedGenerationMethods': ['embedContent']},
+        {'name': 'models/aqa', 'supportedGenerationMethods': ['generateAnswer']},
+    ]},
+    'anthropic': {'data': [{'id': 'claude-sonnet-5-5'}, {'id': 'claude-opus-5'}]},
+    'openai': {'data': [{'id': 'gpt-5.6-sol'}, {'id': 'text-embedding-3-small'}]},
+}
+
+
+@pytest.mark.parametrize('etiket, saglayici, beklenen', [
+    ('Google (Gemini)', 'google', ['gemini-flash-latest']),
+    ('Anthropic (Claude)', 'anthropic', ['claude-opus-5', 'claude-sonnet-5-5']),
+    ('OpenAI (GPT)', 'openai', ['gpt-5.6-sol']),
+])
+def test_model_listesi_sohbet_disini_ayiklar(monkeypatch, etiket, saglayici, beklenen):
+    """Liste sağlayıcıdan gelir; gömme ve ses modelleri seçeneklerin arasına karışmaz."""
+    monkeypatch.setattr(llm, '_liste_al', lambda url, basliklar, zaman_asimi=30: LISTE_CEVABI[saglayici])
+    assert lm.modelleri_getir(etiket, 'anahtar') == beklenen
+
+
+def test_model_listesi_anahtari_basliga_koyar(monkeypatch):
+    kutu = {}
+    monkeypatch.setattr(llm, '_liste_al',
+                        lambda url, basliklar, zaman_asimi=30: kutu.update(url=url, basliklar=basliklar)
+                        or LISTE_CEVABI['anthropic'])
+    lm.modelleri_getir('Anthropic (Claude)', 'gizli-anahtar')
+    assert kutu['basliklar']['x-api-key'] == 'gizli-anahtar'
+    assert 'gizli-anahtar' not in kutu['url']           # anahtar adrese yazılmaz
+
+
+def test_model_listesi_bos_donerse_acik_hata(monkeypatch):
+    monkeypatch.setattr(llm, '_liste_al', lambda url, basliklar, zaman_asimi=30: {'data': []})
+    with pytest.raises(llm.LLMHatasi, match='model döndürmedi'):
+        lm.modelleri_getir('Anthropic (Claude)', 'x')
+
+
+def test_varsayilan_modeller_tek_kaynaktan_gelir():
+    """İki dosyada ayrı liste tutulursa biri eskir ve farklı model istenir; o fark 404 olur."""
+    assert {ad: a['varsayilan_model'] for ad, a in llm.SAGLAYICILAR.items()} == lm.VARSAYILAN_MODELLER
+    assert set(lm.VARSAYILAN_MODELLER) == set(llm.MODEL_LISTESI_URL)
+
+
+def test_yerel_modda_ortamdaki_anahtar_kullanilmaz(monkeypatch):
+    """Ortamda anahtar dursa bile yerel mod seçiliyse dışarıya istek atılmamalı."""
+    monkeypatch.setenv('GOOGLE_API_KEY', 'AIza-ortamda-duran')
+    monkeypatch.setenv('ANTHROPIC_API_KEY', 'sk-ant-api03-ortamda-duran')
+    assert lm.get_api_key('', 'Yerel mod (dil modeli yok)') is None
+
+    def patlat(*a, **k):
+        raise AssertionError('yerel modda ağa çıkılmamalı')
+
+    monkeypatch.setattr(llm.Istemci, '_gonder', staticmethod(patlat))
+    cevap = lm.danismana_sor('marj oranı nedir', None, None, 'Yerel mod (dil modeli yok)', '')
+    assert 'Yerel mod' in cevap and 'dışarı çıkmadı' in cevap
+    assert 'Kaynaklar' in cevap                        # cevap yine kaynaklı veriliyor
