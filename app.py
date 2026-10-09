@@ -170,20 +170,19 @@ with st.sidebar:
         st.success("Yerel mod açık. Hesap motoru, Ek I varsayılanları, maliyet köprüsü ve FANP "
                    "tam çalışır; danışman dil modeli olmadan kaynaklı cevap verir.")
     else:
-        import llm_motor as _lm
         api_key = st.text_input("API Anahtarı", type="password",
                                 help="Secrets'a ya da ortam değişkenine eklediyseniz boş bırakın. "
                                      "Firma verileriniz 'Gizlilik Perdesi' arkasında yer tutucuya "
                                      "çevrilerek gönderilir; rakamlarınız sağlayıcıya gitmez.")
-        if not api_key and _lm.get_api_key("", llm_provider):
+        if not api_key and llm_motor.get_api_key("", llm_provider):
             st.caption("Anahtar Secrets'tan okunuyor; kutuya yazmanız gerekmiyor.")
 
         # Model adı koda sabitlenmiyor: anahtarın gerçekten erişebildiği liste sağlayıcıdan sorulur.
         # Düğme kutuya değil, herhangi bir kaynaktan gelen anahtara bakar.
-        _anahtar_var = bool(_lm.get_api_key(api_key, llm_provider))
+        _anahtar_var = bool(llm_motor.get_api_key(api_key, llm_provider))
         if st.button("Kullanılabilir modelleri getir", width="stretch", disabled=not _anahtar_var):
             try:
-                st.session_state["model_listesi"] = _lm.modelleri_getir(llm_provider, api_key)
+                st.session_state["model_listesi"] = llm_motor.modelleri_getir(llm_provider, api_key)
             except Exception as e:                       # noqa: BLE001 (arayüzde çökme istemiyoruz)
                 st.session_state["model_listesi"] = []
                 st.error(f"Liste alınamadı: {e}")
@@ -198,14 +197,14 @@ with st.sidebar:
                                            "404 alıyorsanız yukarıdaki düğmeyle listeyi getirin.")
 
     with st.expander("🔍 Anahtar tanısı"):
-        import llm_motor as _lm
-        _saglayici = _lm.saglayici_coz(llm_provider)
-        _anahtar = "" if yerel_mod else _lm.get_api_key(api_key, llm_provider)
+        _saglayici = llm_motor.saglayici_coz(llm_provider)
+        _anahtar = "" if yerel_mod else llm_motor.get_api_key(api_key, llm_provider)
         _kaynak = "kenar çubuğundaki kutu" if api_key else "ortam değişkeni ya da Secrets"
         if yerel_mod:
             st.info("Yerel modda anahtar kullanılmıyor, dışarıya istek gitmiyor.")
         elif not _anahtar:
-            st.warning("Anahtar bulunamadı. Kutuya yazın ya da Secrets bölümüne ekleyin.")
+            st.warning("Anahtar bulunamadı. Settings → Secrets bölümüne ekleyin; kalıcı yer orası. "
+                       "Hızlı deneme için yukarıdaki kutuya yapıştırabilirsiniz.")
         else:
             _onek = {"anthropic": "sk-ant-api", "openai": "sk-", "google": "AIza"}[_saglayici]
             st.caption(f"Sağlayıcı: {_saglayici} · Kaynak: {_kaynak}")
@@ -376,10 +375,22 @@ with tabs[7]:
     st.subheader("💬 Yeşil Dönüşüm Stratejik Danışmanı (LLM)")
     st.caption("Firmanızın FANP analiz sonuçlarına entegre, akademik referanslı ve B2B çözüm ortaklarına yönlendirici karar motoru.")
 
-    if not api_key:
-        st.warning(f"🔒 Chatbot zekasının (LLM) devreye girmesi için sol menüden '{llm_provider}' API Anahtarını girmelisiniz.")
+    # Anahtar kutusu değil, çözülmüş anahtar bakılır: Secrets'tan okunuyorsa kutu boş olabilir.
+    _aktif_anahtar = llm_motor.get_api_key(api_key, llm_provider)
+    if yerel_mod:
+        st.info("🔒 **Yerel mod.** Dışarıya hiçbir istek gitmiyor. Danışman, yüklediğiniz mevzuat ve "
+                "hesap sonuçları içinden kaynak göstererek cevap verir. Dil modeli isterseniz sol "
+                "menüden bir sağlayıcı seçin.")
+    elif _aktif_anahtar:
+        _nereden = "kenar çubuğundaki kutudan" if api_key else "Secrets'tan"
+        st.success(f"✅ {llm_provider} motoru aktif (anahtar {_nereden} okundu). Kurumsal verileriniz "
+                   "'Gizlilik Perdesi' arkasında yer tutucuya çevrilerek işleniyor; rakamlarınız "
+                   "sağlayıcıya gitmiyor.")
     else:
-        st.success(f"✅ {llm_provider} motoru aktif. Kurumsal verileriniz 'Gizlilik Perdesi' arkasında anonimleştirilerek işlenmektedir.")
+        st.warning(f"🔒 **{llm_provider} anahtarı bulunamadı.** Anahtarı uygulamanın Settings → Secrets "
+                   "bölümüne ekleyin (kalıcı yer orası), kenar çubuğundaki kutuyu boş bırakın. "
+                   "Anahtar istemiyorsanız sol menüden **Yerel mod**'u seçin: hesap motoru, Ek I "
+                   "varsayılanları, maliyet köprüsü ve FANP anahtarsız da tam çalışır.")
 
     if "chat_messages" not in st.session_state:
         st.session_state.chat_messages = [

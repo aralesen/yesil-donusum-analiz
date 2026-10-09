@@ -1,5 +1,6 @@
 """Arayüz testleri: varsayılan model ve boyutları farklı bir model. python -m pytest -q tests"""
 import os
+import pathlib
 import shutil
 import sys
 
@@ -76,3 +77,48 @@ def test_farkli_boyutlu_model(tmp_path, monkeypatch):
     # özel modelin stratejileri ekrana geliyor mu (app.py artık model özetini yazmıyor)
     metin = ' '.join(x.value for x in at.markdown)
     assert 'Strateji' in metin
+
+
+# ----------------------------------------- danışman sekmesindeki durum mesajı: üç hal, üç mesaj
+
+def _metinler(at):
+    return ' '.join([e.value for e in at.warning] + [e.value for e in at.info]
+                    + [e.value for e in at.success])
+
+
+def test_yerel_modda_anahtar_istenmez(monkeypatch):
+    """Varsayılan yerel mod: kullanıcıdan anahtar istenmemeli."""
+    monkeypatch.delenv('ANTHROPIC_API_KEY', raising=False)
+    at = AppTest.from_file(os.path.join(ROOT, 'app.py'), default_timeout=120).run()
+    metin = _metinler(at)
+    assert 'Yerel mod' in metin
+    assert 'API Anahtarını girmelisiniz' not in metin        # eski, yanlış yönlendiren metin
+    assert not at.exception
+
+
+def test_saglayici_secilip_anahtar_yoksa_secrets_onerilir(monkeypatch):
+    """Anahtar yoksa kullanıcı kutuya değil Secrets'a yönlendirilmeli."""
+    monkeypatch.delenv('ANTHROPIC_API_KEY', raising=False)
+    at = AppTest.from_file(os.path.join(ROOT, 'app.py'), default_timeout=120).run()
+    at.selectbox[0].select('Anthropic (Claude)').run()
+    assert any('Secrets' in w.value for w in at.warning)
+    assert not at.exception
+
+
+def test_ortamdaki_anahtar_kutu_bos_olsa_da_bulunur(monkeypatch):
+    """Secrets'tan okunan anahtarda 'anahtar girin' denmemeli; asıl hatamız buydu."""
+    monkeypatch.setenv('ANTHROPIC_API_KEY', 'sk-ant-api03-test-anahtari-yeterince-uzun-olsun-diye')
+    at = AppTest.from_file(os.path.join(ROOT, 'app.py'), default_timeout=120).run()
+    at.selectbox[0].select('Anthropic (Claude)').run()
+    ipuclari = ' '.join(c.value for c in at.caption)
+    assert "Secrets'tan okunuyor" in ipuclari              # kutuya yazmaya gerek yok denmeli
+    assert any('Biçim doğru' in e.value for e in at.success)
+    assert not any('bulunamadı' in w.value for w in at.warning)
+    assert not at.exception
+
+
+def test_yanlis_yonlendiren_eski_metin_kodda_kalmadi():
+    """Kutuya anahtar girmeye zorlayan metin kaldırıldı; geri gelmesin."""
+    kaynak = pathlib.Path(ROOT, 'app.py').read_text(encoding='utf-8')
+    assert 'API Anahtarını girmelisiniz' not in kaynak
+    assert 'Yerel mod' in kaynak and 'Secrets' in kaynak

@@ -54,7 +54,7 @@ Bulutta aynı satır uygulama ayarlarındaki **Secrets** bölümüne yazılır. 
 
 ```bash
 pip install -r requirements.txt pytest ruff mypy
-python -m pytest -q        # 494 test geçmeli
+python -m pytest -q        # 497 test geçmeli
 ruff check .               # temiz
 streamlit run app.py
 ```
