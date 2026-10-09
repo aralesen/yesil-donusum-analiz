@@ -54,7 +54,7 @@ Bulutta aynı satır uygulama ayarlarındaki **Secrets** bölümüne yazılır. 
 
 ```bash
 pip install -r requirements.txt pytest ruff mypy
-python -m pytest -q        # 479 test geçmeli
+python -m pytest -q        # 494 test geçmeli
 ruff check .               # temiz
 streamlit run app.py
 ```
@@ -93,6 +93,24 @@ python anahtar_testi.py --model <listeden-bir-ad>       # o modelle tek istek at
 Sağlayıcı bir üretim ayarını emekliye ayırırsa (örneğin `temperature` artık kabul edilmiyorsa)
 istemci o ayarı atıp isteği kendisi yeniliyor. Tek bir ayar yüzünden cevap kaybedilmiyor.
 
+### Google (Gemini) anahtarı: ücretsiz katman
+
+aistudio.google.com üzerinden kart istemeden anahtar alınıyor. Anahtar `AIza` ile başlıyor.
+Streamlit Secrets'a şu satır eklenir, kenar çubuğunda sağlayıcı **Google (Gemini)** seçilir:
+
+```toml
+GOOGLE_API_KEY = "AIza..."
+```
+
+İstek, Google'ın Interactions ucuna `store: false` ile gidiyor, yani istek ve cevap sağlayıcıda
+saklanmıyor. Uç anahtara ya da modele kapalıysa istemci eski `generateContent` ucuna kendisi
+düşüyor; iki biçimi de okuyabiliyor. Anahtar adrese değil `x-goog-api-key` başlığına konuyor,
+böylece günlüklere düşmüyor.
+
+Ücretsiz katmanlarda sağlayıcılar genelde veriyi ürün geliştirmede kullanma hakkını saklı tutar.
+Gizlilik Perdesi firma rakamlarını dışarı çıkarmıyor, yalnızca soru metni ve kamuya açık mevzuat
+gidiyor. Yine de gerçek bir müşteri demosunda ücretli katman ya da yerel mod tercih edilmeli.
+
 ### "latin-1 codec can't encode" hatası
 
 Anahtar kutusunda ASCII dışı karakter var demektir. HTTP başlıkları Türkçe harf taşıyamaz:
@@ -100,6 +118,10 @@ Anahtar kutusunda ASCII dışı karakter var demektir. HTTP başlıkları Türk�
 metin yazılmıştır ya da anahtar elle yazılırken bozulmuştur. Kenar çubuğundaki **Anahtar tanısı**
 bölümü hangi karakterin sorun çıkardığını isim vererek söyler. Kopyala yapıştırda gelen görünmez
 karakterler (BOM, kırılmayan boşluk, sıfır genişlikli boşluk) ise sessizce temizlenir.
+
+Bu kısıt yalnızca anahtarı ilgilendirir. Soru, mevzuat metni ve cevap isteğin gövdesinde UTF-8
+JSON olarak gidiyor; Türkçe karakterler orada sorunsuz taşınıyor. Danışmanın dili Türkçe, arama
+katmanı Türkçe çekim eklerini ve büyük İ sorununu da çözüyor.
 
 ### Anthropic anahtarı nereden alınır
 

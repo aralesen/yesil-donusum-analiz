@@ -32,17 +32,20 @@ SAGLAYICILAR = {
         'varsayilan_model': 'claude-sonnet-5-5',
     },
     'google': {
-        'url': 'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent',
+        'url': 'https://generativelanguage.googleapis.com/v1beta/interactions',
+        # Interactions ucu anahtara ya da modele kapalıysa eski uca düşülür.
+        'yedek_url': 'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent',
         'anahtar_adi': 'GOOGLE_API_KEY',
         'varsayilan_model': 'gemini-flash-latest',
     },
 }
 
-# Anahtarın erişebildiği modelleri sormak için kullanılan adresler.
+# Anahtarın erişebildiği modelleri sormak için kullanılan adresler. Anahtar adrese değil
+# başlığa konur: adresler kayıtlara ve vekil sunucu günlüklerine düşüyor.
 MODEL_LISTESI_URL = {
     'openai': 'https://api.openai.com/v1/models',
     'anthropic': 'https://api.anthropic.com/v1/models?limit=100',
-    'google': 'https://generativelanguage.googleapis.com/v1beta/models?key={anahtar}',
+    'google': 'https://generativelanguage.googleapis.com/v1beta/models?pageSize=200',
 }
 
 # Sohbet uçlarına gitmeyen model türleri; listeyi okunur tutmak için ayıklanır.
@@ -138,11 +141,30 @@ def _parametreyi_at(govde: dict, ad: str) -> bool:
     if ad in govde:
         govde.pop(ad)
         return True
-    ic = govde.get('generationConfig')
-    if isinstance(ic, dict) and ad in ic:
-        ic.pop(ad)
-        return True
+    for ic in govde.values():            # generationConfig / generation_config gibi iç sözlükler
+        if isinstance(ic, dict) and ad in ic:
+            ic.pop(ad)
+            return True
     return False
+
+
+def _interactions_metni(cevap: dict) -> str:
+    """Google Interactions cevabından üretilen metni çıkarır.
+
+    Metin steps dizisinde durur: type'ı model_output olan adımın content listesindeki text
+    alanları. Araç çağrısı döndüyse metin olmaz; o durum çağırana hata olarak bildirilir.
+    """
+    parcalar = [icerik.get('text', '')
+                for adim in cevap.get('steps', [])
+                if adim.get('type') == 'model_output'
+                for icerik in adim.get('content', [])]
+    if not parcalar and cevap.get('status') == 'requires_action':
+        raise LLMHatasi('Model metin yerine araç çağrısı istedi; bu uygulamada araç kullanılmıyor.')
+    return ''.join(parcalar)
+
+
+# Uç ya da model Interactions'a kapalıysa eski uca düşmeyi tetikleyen durumlar.
+_YEDEGE_DUS = (404, 400)
 
 
 def _liste_al(url: str, basliklar: dict, zaman_asimi: int = 30) -> dict:
@@ -176,11 +198,11 @@ def modelleri_listele(saglayici: str, anahtar: str = '') -> list[str]:
     if not anahtar:
         raise LLMHatasi(f'{ad} bulunamadı.')
     anahtar = dogrula_anahtar(anahtar, ad)
-    url = MODEL_LISTESI_URL[saglayici].format(anahtar=urllib.parse.quote(anahtar, safe=''))
+    url = MODEL_LISTESI_URL[saglayici]
     basliklar = {
         'openai': {'Authorization': f'Bearer {anahtar}'},
         'anthropic': {'x-api-key': anahtar, 'anthropic-version': '2023-06-01'},
-        'google': {},
+        'google': {'x-goog-api-key': anahtar},
     }[saglayici]
     try:
         govde = _liste_al(url, basliklar)
@@ -217,6 +239,7 @@ class Istemci:
 
     def __post_init__(self):
         self.atilan_ayarlar: list[str] = []      # sağlayıcının reddettiği ve atılan ayarlar
+        self.yedek_yol: bool = False             # Google'da eski generateContent ucuna düşüldü mü
         if self.saglayici not in SAGLAYICILAR:
             raise ValueError(f'Bilinmeyen sağlayıcı: {self.saglayici}. '
                              f"Seçenekler: {', '.join(SAGLAYICILAR)}")
@@ -243,12 +266,22 @@ class Istemci:
                     {'model': self.model, 'max_tokens': self.azami_jeton, 'temperature': self.sicaklik,
                      'system': sistem, 'messages': [{'role': 'user', 'content': kullanici}]},
                     {'x-api-key': self.anahtar, 'anthropic-version': '2023-06-01'})
-        url = SAGLAYICILAR['google']['url'].format(model=self.model) + f'?key={self.anahtar}'
-        return (url,
-                {'system_instruction': {'parts': [{'text': sistem}]},
-                 'contents': [{'role': 'user', 'parts': [{'text': kullanici}]}],
-                 'generationConfig': {'temperature': self.sicaklik, 'maxOutputTokens': self.azami_jeton}},
-                {})
+        basliklar = {'x-goog-api-key': self.anahtar}       # anahtar adrese değil başlığa konur
+        if self.yedek_yol:
+            # Eski uç: model adresin içinde, istek gövdesi contents biçiminde.
+            return (SAGLAYICILAR['google']['yedek_url'].format(model=self.model),
+                    {'system_instruction': {'parts': [{'text': sistem}]},
+                     'contents': [{'role': 'user', 'parts': [{'text': kullanici}]}],
+                     'generation_config': {'temperature': self.sicaklik,
+                                           'max_output_tokens': self.azami_jeton}},
+                    basliklar)
+        # store=false: istek ve cevap sağlayıcıda saklanmaz. Gizlilik politikamızın gereği.
+        return (SAGLAYICILAR['google']['url'],
+                {'model': self.model, 'input': kullanici, 'system_instruction': sistem,
+                 'store': False,
+                 'generation_config': {'temperature': self.sicaklik,
+                                       'max_output_tokens': self.azami_jeton}},
+                basliklar)
 
     @staticmethod
     def _metni_cikar(saglayici: str, cevap: dict) -> str:
@@ -257,7 +290,9 @@ class Istemci:
                 return cevap['choices'][0]['message']['content']
             if saglayici == 'anthropic':
                 return ''.join(p.get('text', '') for p in cevap['content'])
-            return ''.join(p.get('text', '') for p in cevap['candidates'][0]['content']['parts'])
+            if 'candidates' in cevap:        # eski generateContent biçimi
+                return ''.join(p.get('text', '') for p in cevap['candidates'][0]['content']['parts'])
+            return _interactions_metni(cevap)
         except (KeyError, IndexError, TypeError) as e:
             raise LLMHatasi(f'Cevap beklenen biçimde değil: {e}') from e
 
@@ -282,6 +317,12 @@ class Istemci:
                     self.atilan_ayarlar.append(ad)
                     duzeltme += 1
                     continue                   # aynı isteği, o ayar olmadan yeniden gönder
+                # Google'ın yeni ucu anahtara ya da modele kapalıysa eski uçla bir kez denenir.
+                if (self.saglayici == 'google' and not self.yedek_yol
+                        and e.code in _YEDEGE_DUS):
+                    self.yedek_yol = True
+                    url, govde, basliklar = self._govde(sistem, kullanici)
+                    continue
                 deneme += 1
                 if e.code in (429, 500, 502, 503, 504) and deneme < self.deneme:
                     time.sleep(2 ** (deneme - 1))      # kısa bekleyip tekrar dene

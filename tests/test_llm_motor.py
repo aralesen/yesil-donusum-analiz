@@ -10,7 +10,8 @@ import llm_motor as lm  # noqa: E402
 from karbon import llm  # noqa: E402
 
 CEVAP = {
-    'google': {'candidates': [{'content': {'parts': [{'text': 'bağlama dayalı cevap'}]}}]},
+    'google': {'status': 'completed',
+               'steps': [{'type': 'model_output', 'content': [{'text': 'bağlama dayalı cevap'}]}]},
     'anthropic': {'content': [{'text': 'bağlama dayalı cevap'}]},
     'openai': {'choices': [{'message': {'content': 'bağlama dayalı cevap'}}]},
 }
@@ -47,7 +48,7 @@ def test_secilen_saglayiciya_gider(kayit):
 def test_model_adi_takma_ad_varsayilani(kayit):
     kayit['saglayici'] = 'google'
     lm.danismana_sor('marj oranı nedir', '', None, 'Google (Gemini)', 'anahtar')
-    assert 'gemini-flash-latest' in kayit['url']        # emekli olmuş sabit sürüm değil
+    assert kayit['govde']['model'] == 'gemini-flash-latest'   # emekli olmuş sabit sürüm değil
 
 
 def test_kullanici_model_adi_verebilir(kayit):
